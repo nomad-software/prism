@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Prism
+Comment=Graphs of the use of the processors, memory and network
+Exec=prism
+Icon=prism
+Categories=System;Monitor;
+Terminal=false
+StartupWMClass=prism

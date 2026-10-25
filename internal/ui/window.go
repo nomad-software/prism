@@ -1,6 +1,7 @@
 // Package ui is the program's window: graphs of the use of the processors,
 // memory and swap, and network adapters, each read at an interval of its
-// own, and the settings of how they are read and drawn.
+// own, a table of the processes, and the settings of how they are read and
+// drawn.
 package ui
 
 import (
@@ -31,6 +32,10 @@ type Window struct {
 	now func() time.Time
 	// file and help are the File and Help menus.
 	file, help *qt.QMenu
+	// tabs has a tab of the graphs, and one of the processes, and tabKeys
+	// are the shortcuts to each, in order.
+	tabs    *qt.QTabWidget
+	tabKeys []*qt.QShortcut
 
 	cpu struct {
 		section
@@ -59,6 +64,7 @@ type Window struct {
 		received, sent *graph
 		legend         *legend
 	}
+	processes processes
 }
 
 // section is the part of the window of one statistic: its heading, where
@@ -102,8 +108,8 @@ func NewWindow(path string, source stats.Source) *Window {
 	w.Resize(w.config.Width, w.config.Height)
 	w.makeMenus()
 
-	central := qt.NewQWidget2()
-	layout := qt.NewQVBoxLayout(central)
+	resources := qt.NewQWidget2()
+	layout := qt.NewQVBoxLayout(resources)
 	layout.SetContentsMargins(32, 12, 32, 32)
 	layout.SetSpacing(18)
 	w.makeCPU()
@@ -112,7 +118,13 @@ func NewWindow(path string, source stats.Source) *Window {
 	layout.AddWidget2(w.cpu.QWidget, 1)
 	layout.AddWidget2(w.memory.QWidget, 1)
 	layout.AddWidget2(w.network.QWidget, 1)
-	w.SetCentralWidget(central)
+	processes := qt.NewQWidget2()
+	layout = qt.NewQVBoxLayout(processes)
+	layout.SetContentsMargins(32, 12, 32, 32)
+	w.makeProcesses()
+	layout.AddWidget(w.processes.QWidget)
+	w.makeTabs(resources, processes)
+	w.SetCentralWidget(w.tabs.QWidget)
 	// A status bar along the bottom, with a handle in its corner to drag
 	// the window bigger or smaller by.
 	w.StatusBar().SetSizeGripEnabled(true)
@@ -120,6 +132,7 @@ func NewWindow(path string, source stats.Source) *Window {
 	w.cpu.timer = w.newTimer(w.config.Intervals.CPU, w.sampleCPU)
 	w.memory.timer = w.newTimer(w.config.Intervals.Memory, w.sampleMemory)
 	w.network.timer = w.newTimer(w.config.Intervals.Network, w.sampleNetwork)
+	w.processes.timer = w.newTimer(w.config.Intervals.Processes, w.sampleProcesses)
 
 	w.OnCloseEvent(func(super func(*qt.QCloseEvent), event *qt.QCloseEvent) {
 		w.saveSettings()
@@ -128,11 +141,11 @@ func NewWindow(path string, source stats.Source) *Window {
 	return w
 }
 
-// Start shows the window, takes the first reading of each statistic, and
-// starts reading them at their intervals. Every graph is drawn across from
-// the first reading; the use of the processors and the rates of the network
-// adapters are worked out from one reading to the next, so they are 0 until
-// the second.
+// Start shows the window, takes the first reading of each statistic and of
+// the processes, and starts reading them at their intervals. Every graph is
+// drawn across from the first reading; the use of the processors and
+// processes and the rates of the network adapters are worked out from one
+// reading to the next, so they are 0, or not known, until the second.
 func (w *Window) Start() {
 	if w.config.Maximized {
 		w.ShowMaximized()
@@ -142,7 +155,8 @@ func (w *Window) Start() {
 	w.sampleCPU()
 	w.sampleMemory()
 	w.sampleNetwork()
-	for _, t := range []*qt.QTimer{w.cpu.timer, w.memory.timer, w.network.timer} {
+	w.sampleProcesses()
+	for _, t := range []*qt.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer} {
 		t.Start2()
 	}
 }
@@ -558,6 +572,7 @@ func (w *Window) applySettings(s settings.Settings) {
 		{w.cpu.timer, s.Intervals.CPU},
 		{w.memory.timer, s.Intervals.Memory},
 		{w.network.timer, s.Intervals.Network},
+		{w.processes.timer, s.Intervals.Processes},
 	} {
 		if ms := int(settings.Duration(t.interval) / time.Millisecond); t.timer.Interval() != ms {
 			t.timer.SetInterval(ms)
@@ -566,6 +581,7 @@ func (w *Window) applySettings(s settings.Settings) {
 	w.showCPU()
 	w.showMemory()
 	w.showNetwork()
+	w.showProcesses()
 	w.saveSettings()
 }
 

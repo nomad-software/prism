@@ -1,11 +1,14 @@
 package stats
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // writeFiles makes a root with the files, by their paths under it.
@@ -254,5 +257,139 @@ func TestParseLineTooLong(t *testing.T) {
 	}
 	if _, err := parseMeminfo(strings.NewReader("MemTotal: " + long)); err == nil {
 		t.Error("parseMeminfo of an overlong line succeeded")
+	}
+}
+
+func TestParseProcessStat(t *testing.T) {
+	// The name has spaces and brackets of its own.
+	data := "1234 (a (b) c) S 1 1234 1234 0 -1 4194560 100 0 0 0 250 50 0 0 20 0 1 0 98765 1000 200\n"
+	p, err := parseProcessStat([]byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Process{Name: "a (b) c", PPID: 1, CPU: 3 * time.Second, Start: 98765}); p != want {
+		t.Errorf("parseProcessStat = %+v, want %+v", p, want)
+	}
+	// A thread of the kernel has PF_KTHREAD among its flags.
+	kernel := "2 (kthreadd) S 0 0 0 0 -1 2129984 0 0 0 0 0 0 0 0 20 0 1 0 5 0 0\n"
+	if p, err := parseProcessStat([]byte(kernel)); err != nil || !p.Kernel {
+		t.Errorf("parseProcessStat of a kernel thread = %+v, %v", p, err)
+	}
+	for _, bad := range []string{"", "1234 no name", "1234 (x) S 1 2", "1234 (x) S 1 2 3 4 5 6 7 8 9 10 x 0 0 0 0 0 0 0 1 0 0"} {
+		if _, err := parseProcessStat([]byte(bad)); err == nil {
+			t.Errorf("parseProcessStat(%q) succeeded", bad)
+		}
+	}
+}
+
+func TestParseStatusUID(t *testing.T) {
+	status := "Name:\tbash\nUmask:\t0022\nState:\tS (sleeping)\nUid:\t1000\t0\t1000\t1000\nGid:\t100\t100\t100\t100\n"
+	if uid, err := parseStatusUID([]byte(status)); err != nil || uid != 1000 {
+		t.Errorf("parseStatusUID = %d, %v, want the real ID", uid, err)
+	}
+	for _, bad := range []string{"", "Name:\tx\n", "Uid:\n", "Uid:\tx\t0\n"} {
+		if _, err := parseStatusUID([]byte(bad)); err == nil {
+			t.Errorf("parseStatusUID(%q) succeeded", bad)
+		}
+	}
+}
+
+func TestSystemProcess(t *testing.T) {
+	for _, c := range []struct {
+		p    Process
+		want bool
+	}{
+		{Process{UID: 0}, true},
+		{Process{UID: 999}, true},
+		{Process{UID: firstUserUID}, false},
+		{Process{UID: 60001}, false},
+		{Process{UID: 65534}, true},
+		{Process{UID: 1<<32 - 2}, true},
+		{Process{UID: firstUserUID, Kernel: true}, true},
+	} {
+		if got := c.p.System(); got != c.want {
+			t.Errorf("%+v System = %v, want %v", c.p, got, c.want)
+		}
+	}
+}
+
+func TestParseStatm(t *testing.T) {
+	if n, err := parseStatm([]byte("5000 1200 300 1 0 800 0\n")); err != nil || n != 1200 {
+		t.Errorf("parseStatm = %d, %v", n, err)
+	}
+	for _, bad := range []string{"", "5000", "5000 x"} {
+		if _, err := parseStatm([]byte(bad)); err == nil {
+			t.Errorf("parseStatm(%q) succeeded", bad)
+		}
+	}
+}
+
+func TestLinuxProcesses(t *testing.T) {
+	const fields = " S 1 1 1 0 -1 0 0 0 0 0 150 50 0 0 20 0 1 0 777 0 0\n"
+	root := writeFiles(t, map[string]string{
+		"proc/1/stat":       "1 (init)" + fields,
+		"proc/1/statm":      "100 10 0 0 0 0 0\n",
+		"proc/1/status":     "Name:\tinit\nUid:\t0\t0\t0\t0\n",
+		"proc/4/stat":       "4 (no status)" + fields,
+		"proc/4/statm":      "100 10 0 0 0 0 0\n",
+		"proc/2/stat":       "2 (no statm)" + fields,
+		"proc/3/stat":       "3 (broken) S\n",
+		"proc/3/statm":      "100 10 0 0 0 0 0\n",
+		"proc/self/stat":    "1 (init)" + fields,
+		"proc/self/statm":   "100 10 0 0 0 0 0\n",
+		"proc/meminfo":      meminfo,
+		"proc/0/stat":       "0 (zero)" + fields,
+		"proc/0/statm":      "100 10 0 0 0 0 0\n",
+		"proc/-4/stat":      "-4 (negative)" + fields,
+		"proc/-4/statm":     "100 10 0 0 0 0 0\n",
+		"proc/10/somewhere": "",
+	})
+	l := Linux{Root: root}
+	got, err := l.Processes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Process{{PID: 1, PPID: 1, Name: "init", Start: 777, CPU: 2 * time.Second, Memory: 10 * uint64(os.Getpagesize())}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Processes = %+v, want %+v", got, want)
+	}
+	if _, err := (Linux{Root: t.TempDir()}).Processes(); err == nil {
+		t.Error("Processes succeeded without /proc")
+	}
+
+	// A process that has ended, or whose PID is another's now, is not sent
+	// the signal; nor is a PID that would be a group's. None of these
+	// reaches a process of the system's.
+	for _, p := range []Process{{PID: 1, Start: 778}, {PID: 3}, {PID: 5}, {PID: 0}, {PID: -1}} {
+		if err := l.Signal(p, 0); !errors.Is(err, ErrEnded) {
+			t.Errorf("Signal(%+v) = %v, want ErrEnded", p, err)
+		}
+	}
+}
+
+// TestSignalSelf sends signal 0, which checks that a process could be
+// signalled without signalling it, to the tests' own process.
+func TestSignalSelf(t *testing.T) {
+	processes, err := New().Processes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(processes, func(p Process) bool { return p.PID == os.Getpid() })
+	if i < 0 {
+		t.Fatal("the tests' own process is not listed")
+	}
+	self := processes[i]
+	if self.Name == "" || self.Memory == 0 || self.Restricted || self.Kernel || self.UID != os.Getuid() || self.PPID != os.Getppid() {
+		t.Errorf("own process = %+v", self)
+	}
+	if err := New().Signal(self, 0); err != nil {
+		t.Errorf("Signal = %v", err)
+	}
+}
+
+func TestSignals(t *testing.T) {
+	s := Signals()
+	if len(s) == 0 || s[0].Name != "SIGKILL" || s[0].Number != 9 {
+		t.Errorf("Signals = %+v, want SIGKILL first", s)
 	}
 }

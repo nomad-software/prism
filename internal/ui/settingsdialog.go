@@ -11,14 +11,14 @@ import (
 	"github.com/nomad-software/prism/internal/settings"
 )
 
-// settingsDialog shows the settings: how often each statistic is read, how
-// the processors are shown, the units sizes and rates are written in, which
-// network adapters are shown and by what names, the theme, and the colours
-// graphs are drawn in.
+// settingsDialog shows the settings: how often each statistic and the
+// processes are read, how the processors are shown, the units sizes and
+// rates are written in, which network adapters are shown and by what names,
+// the theme, and the colours graphs are drawn in.
 type settingsDialog struct {
 	*qt.QDialog
-	cpuInterval, memoryInterval, networkInterval *qt.QDoubleSpinBox
-	cpuMode, theme, sizeUnits, rateUnits         *qt.QComboBox
+	cpuInterval, memoryInterval, networkInterval, processesInterval *qt.QDoubleSpinBox
+	cpuMode, theme, sizeUnits, rateUnits                            *qt.QComboBox
 	// shown lists the network adapters, in the order of names, each ticked
 	// if it is shown, with its alias beside it.
 	shown *qt.QTableWidget
@@ -58,10 +58,12 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 	d.cpuInterval = newIntervalBox()
 	d.memoryInterval = newIntervalBox()
 	d.networkInterval = newIntervalBox()
+	d.processesInterval = newIntervalBox()
 	generalForm.AddRowWithWidget(sectionHeading("Update intervals").QWidget)
 	generalForm.AddRow3("CPU", d.cpuInterval.QWidget)
 	generalForm.AddRow3("Memory and swap", d.memoryInterval.QWidget)
 	generalForm.AddRow3("Network", d.networkInterval.QWidget)
+	generalForm.AddRow3("Processes", d.processesInterval.QWidget)
 	generalForm.AddRowWithWidget(note("How often each is read, from a tenth of a second to an hour. " +
 		"A graph spans a minute, or two intervals where they are longer.").QWidget)
 	display := sectionHeading("Display")
@@ -256,6 +258,7 @@ func (d *settingsDialog) show(s settings.Settings) {
 	d.cpuInterval.SetValue(s.Intervals.CPU)
 	d.memoryInterval.SetValue(s.Intervals.Memory)
 	d.networkInterval.SetValue(s.Intervals.Network)
+	d.processesInterval.SetValue(s.Intervals.Processes)
 	selectData(d.cpuMode, s.CPUMode)
 	selectData(d.theme, s.Theme)
 	selectData(d.sizeUnits, s.SizeUnits)
@@ -290,9 +293,10 @@ func (d *settingsDialog) showColours(c settings.Colours) {
 func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 	s := current
 	s.Intervals = settings.Intervals{
-		CPU:     d.cpuInterval.Value(),
-		Memory:  d.memoryInterval.Value(),
-		Network: d.networkInterval.Value(),
+		CPU:       d.cpuInterval.Value(),
+		Memory:    d.memoryInterval.Value(),
+		Network:   d.networkInterval.Value(),
+		Processes: d.processesInterval.Value(),
 	}
 	s.CPUMode = currentData(d.cpuMode)
 	s.Theme = currentData(d.theme)

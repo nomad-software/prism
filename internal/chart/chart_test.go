@@ -21,10 +21,10 @@ func TestSize(t *testing.T) {
 		n    float64
 		want string
 	}{
-		{-5, "0 bytes"},
-		{0, "0 bytes"},
-		{394, "394 bytes"},
-		{1023, "1023 bytes"},
+		{-5, "0 B"},
+		{0, "0 B"},
+		{394, "394 B"},
+		{1023, "1023 B"},
 		{1024, "1.0 KiB"},
 		{1126, "1.1 KiB"},
 		{1.5 * 1024 * 1024, "1.5 MiB"},
@@ -133,18 +133,18 @@ func TestRateTopBits(t *testing.T) {
 }
 
 func TestSizeLabels(t *testing.T) {
-	want := []string{"0 bytes", "3.2 GiB", "6.4 GiB", "9.6 GiB", "12.8 GiB", "16.0 GiB"}
+	want := []string{"0 B", "3.2 GiB", "6.4 GiB", "9.6 GiB", "12.8 GiB", "16.0 GiB"}
 	if got := (Units{}).SizeLabels(16 << 30); !reflect.DeepEqual(got, want) {
 		t.Errorf("SizeLabels = %v, want %v", got, want)
 	}
-	want = []string{"0 bytes", "3.2 GB", "6.4 GB", "9.6 GB", "12.8 GB", "16.0 GB"}
+	want = []string{"0 B", "3.2 GB", "6.4 GB", "9.6 GB", "12.8 GB", "16.0 GB"}
 	if got := (Units{Decimal: true}).SizeLabels(16e9); !reflect.DeepEqual(got, want) {
 		t.Errorf("decimal SizeLabels = %v, want %v", got, want)
 	}
 }
 
 func TestRateLabels(t *testing.T) {
-	want := []string{"0 bytes/s", "409.6 KiB/s", "819.2 KiB/s", "1.2 MiB/s", "1.6 MiB/s", "2.0 MiB/s"}
+	want := []string{"0 B/s", "409.6 KiB/s", "819.2 KiB/s", "1.2 MiB/s", "1.6 MiB/s", "2.0 MiB/s"}
 	if got := (Units{}).RateLabels(2 * 1024 * 1024); !reflect.DeepEqual(got, want) {
 		t.Errorf("RateLabels = %v, want %v", got, want)
 	}

@@ -68,8 +68,10 @@ func TestSaveLoad(t *testing.T) {
 	s := Defaults()
 	s.Width, s.Height, s.Maximized = 1000, 700, true
 	s.Theme = ThemeDark
-	s.Intervals = Intervals{CPU: 0.5, Memory: 30, Network: MaxInterval}
+	s.Intervals = Intervals{CPU: 0.5, Memory: 30, Network: MaxInterval, Processes: 4.5}
 	s.CPUMode = CPUTotal
+	s.ProcessSort, s.ProcessOrder = SortName, OrderAscending
+	s.ProcessFilter, s.ProcessView = ProcessesUser, ViewTree
 	s.Colours.Grid = "#ff112233"
 	s.Colours.SetCore(2, "#abcdef")
 	s.Colours.Network["eth0"] = "#010203"
@@ -100,6 +102,8 @@ func TestLoadNormalises(t *testing.T) {
 		"theme": "purple",
 		"intervals": {"cpu": 0.04, "memory": 3601, "network": 7.26},
 		"cpuMode": "sideways",
+		"processSort": "colour", "processOrder": "sideways",
+		"processFilter": "mine", "processView": "grid",
 		"hiddenAdapters": ["veth1", "lo", "veth1"],
 		"colours": {
 			"grid": "grey", "total": "", "memory": "#12345", "swap": "#1234567",
@@ -118,11 +122,19 @@ func TestLoadNormalises(t *testing.T) {
 	if s.Theme != "" {
 		t.Errorf("Theme = %q, want the system's", s.Theme)
 	}
-	if want := (Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: 7.3}); s.Intervals != want {
+	// An interval that is missing, as that of processes is in the settings of
+	// earlier versions, is the default.
+	if want := (Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: 7.3, Processes: DefaultInterval}); s.Intervals != want {
 		t.Errorf("Intervals = %+v, want %+v", s.Intervals, want)
 	}
 	if s.CPUMode != CPUCores {
 		t.Errorf("CPUMode = %q", s.CPUMode)
+	}
+	if s.ProcessSort != SortCPU || s.ProcessOrder != OrderDescending {
+		t.Errorf("process order = %q, %q, want the busiest first", s.ProcessSort, s.ProcessOrder)
+	}
+	if s.ProcessFilter != ProcessesUser || s.ProcessView != ViewList {
+		t.Errorf("processes shown = %q, %q, want those of people as a list", s.ProcessFilter, s.ProcessView)
 	}
 	c := s.Colours
 	if c.Grid != DefaultGrid || c.Total != DefaultTotal || c.Memory != DefaultMemory || c.Swap != DefaultSwap {

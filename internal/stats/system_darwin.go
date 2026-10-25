@@ -1,14 +1,19 @@
 package stats
 
 /*
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <libproc.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #include <mach/mach_host.h>
 #include <mach/processor_info.h>
+#include <sys/param.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/sysctl.h>
+#include <sys/resource.h>
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/route.h>
@@ -108,13 +113,107 @@ static int network(char *names, unsigned long long *rx, unsigned long long *tx, 
 	free(buf);
 	return n;
 }
+
+// process is what is read of a process.
+typedef struct {
+	int pid, ppid;
+	unsigned int uid;
+	int restricted;
+	unsigned long long start, cpu, memory;
+	char name[2 * MAXCOMLEN + 1];
+} process;
+
+// start_of returns when the process with the information started, in
+// microseconds since 1970.
+static unsigned long long start_of(struct kinfo_proc *kp) {
+	return (unsigned long long)kp->kp_proc.p_starttime.tv_sec * 1000000 + kp->kp_proc.p_starttime.tv_usec;
+}
+
+// processes returns every process, in memory the caller frees, and writes
+// how many there are into n; or it returns NULL if they could not be read.
+// The time and memory of each come from proc_pid_rusage, which reads those
+// of other users' processes only for root; a process it fails for is
+// restricted. Its times are in Mach's units, which are made nanoseconds.
+static process *processes(int *n) {
+	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+	struct kinfo_proc *kp = NULL;
+	size_t len;
+	// Processes can start between asking how much room they take and
+	// reading them, so they are read with room to spare, and again if that
+	// is not enough.
+	for (int tries = 0;; tries++) {
+		if (sysctl(mib, 4, NULL, &len, NULL, 0) != 0) {
+			return NULL;
+		}
+		len += len / 8 + 16 * sizeof(struct kinfo_proc);
+		kp = malloc(len);
+		if (kp == NULL) {
+			return NULL;
+		}
+		if (sysctl(mib, 4, kp, &len, NULL, 0) == 0) {
+			break;
+		}
+		free(kp);
+		if (errno != ENOMEM || tries == 3) {
+			return NULL;
+		}
+	}
+	int count = (int)(len / sizeof(struct kinfo_proc));
+	process *out = calloc(count > 0 ? count : 1, sizeof(process));
+	if (out == NULL) {
+		free(kp);
+		return NULL;
+	}
+	mach_timebase_info_data_t tb;
+	if (mach_timebase_info(&tb) != KERN_SUCCESS || tb.denom == 0) {
+		tb.numer = tb.denom = 1;
+	}
+	for (int i = 0; i < count; i++) {
+		process *p = &out[i];
+		p->pid = kp[i].kp_proc.p_pid;
+		p->ppid = kp[i].kp_eproc.e_ppid;
+		p->uid = kp[i].kp_eproc.e_pcred.p_ruid;
+		p->start = start_of(&kp[i]);
+		// proc_name gives a name twice as long as p_comm has room for.
+		if (proc_name(p->pid, p->name, sizeof(p->name)) <= 0) {
+			strlcpy(p->name, kp[i].kp_proc.p_comm, sizeof(p->name));
+		}
+		struct rusage_info_v2 ri;
+		if (proc_pid_rusage(p->pid, RUSAGE_INFO_V2, (rusage_info_t *)&ri) == 0) {
+			p->cpu = (ri.ri_user_time + ri.ri_system_time) * tb.numer / tb.denom;
+			p->memory = ri.ri_phys_footprint;
+		} else {
+			p->restricted = 1;
+		}
+	}
+	free(kp);
+	*n = count;
+	return out;
+}
+
+// process_start writes when the process with the PID started into start. It
+// returns 0, or -1 if there is no such process.
+static int process_start(int pid, unsigned long long *start) {
+	int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, pid};
+	struct kinfo_proc kp;
+	size_t len = sizeof(kp);
+	if (sysctl(mib, 4, &kp, &len, NULL, 0) != 0 || len == 0) {
+		return -1;
+	}
+	*start = start_of(&kp);
+	return 0;
+}
 */
 import "C"
 
 import (
 	"errors"
+	"time"
 	"unsafe"
 )
+
+// firstUserUID is the first user ID macOS gives people.
+const firstUserUID = 501
 
 // darwin reads the statistics from the Mach kernel and sysctl.
 type darwin struct{}
@@ -183,4 +282,41 @@ func (darwin) Network() (map[string]NetCounters, error) {
 		counters[name] = NetCounters{Received: uint64(rx[i]), Sent: uint64(tx[i])}
 	}
 	return counters, nil
+}
+
+// Processes reads every process, from sysctl, with the time and memory of
+// each that proc_pid_rusage can read.
+func (darwin) Processes() ([]Process, error) {
+	var n C.int
+	list := C.processes(&n)
+	if list == nil {
+		return nil, errors.New("the processes could not be read")
+	}
+	defer C.free(unsafe.Pointer(list))
+	processes := make([]Process, 0, int(n))
+	for _, p := range unsafe.Slice(list, int(n)) {
+		processes = append(processes, Process{
+			PID:        int(p.pid),
+			PPID:       int(p.ppid),
+			UID:        int(p.uid),
+			Name:       C.GoString(&p.name[0]),
+			Start:      uint64(p.start),
+			CPU:        time.Duration(p.cpu),
+			Memory:     uint64(p.memory),
+			Restricted: p.restricted != 0,
+		})
+	}
+	return processes, nil
+}
+
+// Signal sends the signal to the process, if sysctl says it started when it
+// did.
+func (darwin) Signal(p Process, number int) error {
+	return signal(p, func(pid int) (uint64, bool) {
+		var start C.ulonglong
+		if C.process_start(C.int(pid), &start) != 0 {
+			return 0, false
+		}
+		return uint64(start), true
+	}, number)
 }

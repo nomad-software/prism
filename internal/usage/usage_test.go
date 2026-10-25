@@ -80,3 +80,36 @@ func TestNetwork(t *testing.T) {
 		t.Errorf("Update with no time passed = %+v", r)
 	}
 }
+
+func TestProcesses(t *testing.T) {
+	var p Processes
+	at := time.Unix(1000, 0)
+	first := p.Update(at, []stats.Process{{PID: 1, Start: 5, CPU: time.Second}})
+	if len(first) != 1 || first[0].Measured || first[0].Busy != 0 || first[0].PID != 1 {
+		t.Errorf("first = %+v, want one not measured", first)
+	}
+	got := p.Update(at.Add(2*time.Second), []stats.Process{
+		{PID: 1, Start: 5, CPU: 4 * time.Second},
+		// A process given the PID of one that ended is new.
+		{PID: 1, Start: 6, CPU: time.Second},
+		{PID: 2, Restricted: true},
+	})
+	want := []Process{
+		{Process: stats.Process{PID: 1, Start: 5, CPU: 4 * time.Second}, Busy: 150, Measured: true},
+		{Process: stats.Process{PID: 1, Start: 6, CPU: time.Second}},
+		{Process: stats.Process{PID: 2, Restricted: true}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("second = %+v, want %+v", got, want)
+	}
+	// Time that goes back, as it cannot, is 0; and no time passing measures
+	// nothing.
+	got = p.Update(at.Add(3*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: time.Second}})
+	if !got[0].Measured || got[0].Busy != 0 {
+		t.Errorf("back = %+v", got[0])
+	}
+	got = p.Update(at.Add(3*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: 2 * time.Second}})
+	if got[0].Measured {
+		t.Errorf("no time = %+v", got[0])
+	}
+}

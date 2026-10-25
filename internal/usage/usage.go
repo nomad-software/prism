@@ -1,6 +1,6 @@
 // Package usage works out what the counters stats reads say: how busy the
-// processors were, and how fast network adapters received and sent, between
-// one reading and the next. It has no dependency on the UI.
+// processors and processes were, and how fast network adapters received and
+// sent, between one reading and the next. It has no dependency on the UI.
 package usage
 
 import (
@@ -89,4 +89,54 @@ func perSecond(before, after uint64, seconds float64) float64 {
 		return 0
 	}
 	return float64(after-before) / seconds
+}
+
+// Process is a process, and how busy it was since the last reading.
+type Process struct {
+	stats.Process
+	// Busy is the percentage of the time of one processor it spent
+	// running, as top counts it, which is more than 100 for one running on
+	// more than one at once.
+	Busy float64
+	// Measured says whether Busy is known, which it is from the process's
+	// second reading, where it is not restricted.
+	Measured bool
+}
+
+// processKey tells processes apart, as one that ended does from one that is
+// given its PID later.
+type processKey struct {
+	pid   int
+	start uint64
+}
+
+// Processes works out how busy processes are from one reading to the next.
+type Processes struct {
+	last map[processKey]time.Duration
+	at   time.Time
+}
+
+// Update takes a reading made at the time, and returns each process in it
+// with how busy it was since the last. A process that was not in the last
+// reading, as none is in the first, is not measured until the next.
+func (p *Processes) Update(at time.Time, now []stats.Process) []Process {
+	seconds := at.Sub(p.at).Seconds()
+	last := make(map[processKey]time.Duration, len(now))
+	processes := make([]Process, len(now))
+	for i, s := range now {
+		key := processKey{s.PID, s.Start}
+		processes[i] = Process{Process: s}
+		if s.Restricted {
+			continue
+		}
+		last[key] = s.CPU
+		if before, ok := p.last[key]; ok && seconds > 0 {
+			processes[i].Measured = true
+			if s.CPU > before {
+				processes[i].Busy = 100 * (s.CPU - before).Seconds() / seconds
+			}
+		}
+	}
+	p.last, p.at = last, at
+	return processes
 }

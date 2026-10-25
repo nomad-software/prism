@@ -54,6 +54,36 @@ const (
 	RateBits  = "bits"
 )
 
+// The columns the processes can be sorted by.
+const (
+	SortPID    = "pid"
+	SortName   = "name"
+	SortCPU    = "cpu"
+	SortMemory = "memory"
+)
+
+// The ways the processes can be sorted: from the least, or A, or from the
+// largest, or Z.
+const (
+	OrderAscending  = "ascending"
+	OrderDescending = "descending"
+)
+
+// The processes that can be shown: every one, those of people, or the
+// system's.
+const (
+	ProcessesAll    = "all"
+	ProcessesUser   = "user"
+	ProcessesSystem = "system"
+)
+
+// The ways the processes can be shown: as a list, or as a tree of the
+// processes each started.
+const (
+	ViewList = "list"
+	ViewTree = "tree"
+)
+
 // Settings is the state that is saved to disk.
 type Settings struct {
 	// Width and Height are the size of the window when it is not maximised.
@@ -76,6 +106,17 @@ type Settings struct {
 	// RateUnits is RateBytes or RateBits, for network rates.
 	SizeUnits string `json:"sizeUnits"`
 	RateUnits string `json:"rateUnits"`
+
+	// ProcessSort is the column the processes are sorted by, SortPID,
+	// SortName, SortCPU or SortMemory, and ProcessOrder is OrderAscending
+	// or OrderDescending, as they were last sorted in the window.
+	ProcessSort  string `json:"processSort"`
+	ProcessOrder string `json:"processOrder"`
+	// ProcessFilter is which processes are shown, ProcessesAll,
+	// ProcessesUser or ProcessesSystem, and ProcessView is ViewList or
+	// ViewTree, as they were last chosen in the window.
+	ProcessFilter string `json:"processFilter"`
+	ProcessView   string `json:"processView"`
 
 	Colours Colours `json:"colours"`
 
@@ -106,9 +147,10 @@ func (s Settings) AdapterLabel(adapter string) string {
 // Intervals are how often each statistic is read, in seconds to a tenth of
 // a second, from MinInterval to MaxInterval.
 type Intervals struct {
-	CPU     float64 `json:"cpu"`
-	Memory  float64 `json:"memory"`
-	Network float64 `json:"network"`
+	CPU       float64 `json:"cpu"`
+	Memory    float64 `json:"memory"`
+	Network   float64 `json:"network"`
+	Processes float64 `json:"processes"`
 }
 
 // Duration returns an interval as a duration, to the millisecond.
@@ -121,11 +163,16 @@ func Defaults() Settings {
 	return Settings{
 		Width:     defaultWidth,
 		Height:    defaultHeight,
-		Intervals: Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: DefaultInterval},
+		Intervals: Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: DefaultInterval, Processes: DefaultInterval},
 		CPUMode:   CPUCores,
 		SizeUnits: SizeBinary,
 		RateUnits: RateBytes,
-		Colours:   DefaultColours(),
+		// The busiest processes are first.
+		ProcessSort:   SortCPU,
+		ProcessOrder:  OrderDescending,
+		ProcessFilter: ProcessesUser,
+		ProcessView:   ViewList,
+		Colours:       DefaultColours(),
 	}
 }
 
@@ -196,7 +243,19 @@ func (s *Settings) normalise() {
 	if s.RateUnits != RateBytes && s.RateUnits != RateBits {
 		s.RateUnits = d.RateUnits
 	}
-	for _, i := range []*float64{&s.Intervals.CPU, &s.Intervals.Memory, &s.Intervals.Network} {
+	if !slices.Contains([]string{SortPID, SortName, SortCPU, SortMemory}, s.ProcessSort) {
+		s.ProcessSort = d.ProcessSort
+	}
+	if s.ProcessOrder != OrderAscending && s.ProcessOrder != OrderDescending {
+		s.ProcessOrder = d.ProcessOrder
+	}
+	if !slices.Contains([]string{ProcessesAll, ProcessesUser, ProcessesSystem}, s.ProcessFilter) {
+		s.ProcessFilter = d.ProcessFilter
+	}
+	if s.ProcessView != ViewList && s.ProcessView != ViewTree {
+		s.ProcessView = d.ProcessView
+	}
+	for _, i := range []*float64{&s.Intervals.CPU, &s.Intervals.Memory, &s.Intervals.Network, &s.Intervals.Processes} {
 		// An interval is kept to a tenth of a second, as it is set; one out
 		// of range, or not a number, is the default.
 		*i = math.Round(*i*10) / 10

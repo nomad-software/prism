@@ -44,7 +44,12 @@ type fakeSource struct {
 	cpu     stats.CPU
 	memory  stats.Memory
 	network map[string]stats.NetCounters
+	procs   []stats.Process
 	err     error
+	// signalErr is what Signal returns, and signalled what it was asked
+	// to send, as "pid number".
+	signalErr error
+	signalled []string
 }
 
 func (f *fakeSource) CPU() (stats.CPU, error) {
@@ -63,6 +68,19 @@ func (f *fakeSource) Network() (map[string]stats.NetCounters, error) {
 	f.Lock()
 	defer f.Unlock()
 	return f.network, f.err
+}
+
+func (f *fakeSource) Processes() ([]stats.Process, error) {
+	f.Lock()
+	defer f.Unlock()
+	return slices.Clone(f.procs), f.err
+}
+
+func (f *fakeSource) Signal(p stats.Process, number int) error {
+	f.Lock()
+	defer f.Unlock()
+	f.signalled = append(f.signalled, fmt.Sprintf("%d %d", p.PID, number))
+	return f.signalErr
 }
 
 // set changes the source while it is locked.
@@ -125,7 +143,7 @@ func TestNewWindow(t *testing.T) {
 			t.Errorf("title = %q", title)
 		}
 		ms := int(settings.Duration(settings.DefaultInterval) / time.Millisecond)
-		for name, timer := range map[string]*qt.QTimer{"CPU": tw.cpu.timer, "memory": tw.memory.timer, "network": tw.network.timer} {
+		for name, timer := range map[string]*qt.QTimer{"CPU": tw.cpu.timer, "memory": tw.memory.timer, "network": tw.network.timer, "processes": tw.processes.timer} {
 			if timer.Interval() != ms {
 				t.Errorf("%s timer interval = %d, want %d", name, timer.Interval(), ms)
 			}
@@ -167,11 +185,12 @@ func TestStart(t *testing.T) {
 		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 1, Idle: 1}}
 		f.memory = stats.Memory{Total: 100, Used: 50}
 		f.network = map[string]stats.NetCounters{"eth0": {}}
+		f.procs = []stats.Process{{PID: 1, Name: "init"}}
 	})
 	mainthread.Wait(func() {
 		tw.Start()
 		defer func() {
-			for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer} {
+			for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
 				if !timer.IsActive() {
 					t.Error("a timer is not running after Start")
 				}
@@ -192,6 +211,9 @@ func TestStart(t *testing.T) {
 		}
 		if _, ok := tw.network.adapters["eth0"]; !ok {
 			t.Error("the adapters were not read at Start")
+		}
+		if len(tw.processes.list) != 1 {
+			t.Error("the processes were not read at Start")
 		}
 	})
 }
@@ -431,7 +453,7 @@ func TestSampleMemory(t *testing.T) {
 		}
 		// The graph is to the scale of the memory there is.
 		g := tw.memory.graph
-		if g.top != 16*gib || g.labels[0] != "0 bytes" || g.labels[len(g.labels)-1] != "16.0 GiB" {
+		if g.top != 16*gib || g.labels[0] != "0 B" || g.labels[len(g.labels)-1] != "16.0 GiB" {
 			t.Errorf("memory graph top %v, labels %q", g.top, g.labels)
 		}
 		if p, _ := tw.memory.swap.Last(); p.V != 0 {
@@ -560,7 +582,7 @@ func TestHiddenAdapters(t *testing.T) {
 		// The units are those the settings choose.
 		s.SizeUnits, s.RateUnits = settings.SizeDecimal, settings.RateBits
 		tw.applySettings(s)
-		if want := "↓ 8.2 kb/s (1.0 kB)   ↑ 0 bits/s (0 bytes)"; tw.network.legend.entries[0].value != want {
+		if want := "↓ 8.2 kb/s (1.0 kB)   ↑ 0 bits/s (0 B)"; tw.network.legend.entries[0].value != want {
 			t.Errorf("eth0 = %q, want %q", tw.network.legend.entries[0].value, want)
 		}
 		// lo's gibibyte a second, 8.6 Gb/s, is drawn to 10 Gb/s.
@@ -579,12 +601,12 @@ func TestApplySettings(t *testing.T) {
 		s := tw.config
 		s.Width, s.Height = 1, 1
 		s.Theme = settings.ThemeDark
-		s.Intervals = settings.Intervals{CPU: 0.5, Memory: 90, Network: 3600}
+		s.Intervals = settings.Intervals{CPU: 0.5, Memory: 90, Network: 3600, Processes: 1.5}
 		s.Colours.Memory = "#010203"
 		tw.applySettings(s)
 
-		if tw.cpu.timer.Interval() != 500 || tw.memory.timer.Interval() != 90_000 || tw.network.timer.Interval() != 3_600_000 {
-			t.Errorf("intervals = %d, %d, %d", tw.cpu.timer.Interval(), tw.memory.timer.Interval(), tw.network.timer.Interval())
+		if tw.cpu.timer.Interval() != 500 || tw.memory.timer.Interval() != 90_000 || tw.network.timer.Interval() != 3_600_000 || tw.processes.timer.Interval() != 1500 {
+			t.Errorf("intervals = %d, %d, %d, %d", tw.cpu.timer.Interval(), tw.memory.timer.Interval(), tw.network.timer.Interval(), tw.processes.timer.Interval())
 		}
 		if tw.memory.graph.span != 3*time.Minute {
 			t.Errorf("memory span = %v, want 3m", tw.memory.graph.span)
@@ -635,7 +657,7 @@ func TestPercent(t *testing.T) {
 }
 
 func TestUsedOf(t *testing.T) {
-	if s := usedOf(chart.Units{}, 512, 2048); s != "512 bytes (25.0%)" {
+	if s := usedOf(chart.Units{}, 512, 2048); s != "512 B (25.0%)" {
 		t.Errorf("usedOf = %q", s)
 	}
 	if s := usedOf(chart.Units{}, 0, 0); s != "Not available" {
@@ -799,7 +821,7 @@ func TestStartThemedNotMaximised(t *testing.T) {
 		if !tw.IsVisible() || tw.IsMaximized() {
 			t.Error("the window is not shown as it was, unmaximised")
 		}
-		for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer} {
+		for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
 			timer.Stop()
 		}
 	})

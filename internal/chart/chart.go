@@ -36,8 +36,8 @@ type Units struct {
 // The names of the units of bytes and of bits, each 1024 or 1000 times the
 // last.
 var (
-	binaryBytes  = []string{"bytes", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
-	decimalBytes = []string{"bytes", "kB", "MB", "GB", "TB", "PB", "EB"}
+	binaryBytes  = []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+	decimalBytes = []string{"B", "kB", "MB", "GB", "TB", "PB", "EB"}
 	binaryBits   = []string{"bits", "Kib", "Mib", "Gib", "Tib", "Pib", "Eib"}
 	decimalBits  = []string{"bits", "kb", "Mb", "Gb", "Tb", "Pb", "Eb"}
 )

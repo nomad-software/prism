@@ -165,7 +165,7 @@ func TestLegendSwatches(t *testing.T) {
 		l.Resize(1000, 10)
 		l.show([]entry{
 			{"#ff0000", "eth0", "↓ 1.0 KiB/s (3.0 MiB)   ↑ 2.0 KiB/s (1.0 MiB)", nil},
-			{"#00ff00", "lo", "↓ 0 bytes/s (0 bytes)   ↑ 0 bytes/s (0 bytes)", nil},
+			{"#00ff00", "lo", "↓ 0 B/s (0 B)   ↑ 0 B/s (0 B)", nil},
 		})
 		fm := l.FontMetrics()
 		// Each entry is one line, its value beside its name.
@@ -175,7 +175,7 @@ func TestLegendSwatches(t *testing.T) {
 		if g := l.grid(); g.Columns != 2 || g.Rows != 1 {
 			t.Errorf("grid = %+v", g)
 		}
-		if want := swatchWidth + 2*legendGap + fm.HorizontalAdvance("eth0") + fm.HorizontalAdvance("↓ 0 bytes/s (0 bytes)   ↑ 0 bytes/s (0 bytes)"); l.entryWidth() < want {
+		if want := swatchWidth + 2*legendGap + fm.HorizontalAdvance("eth0") + fm.HorizontalAdvance("↓ 0 B/s (0 B)   ↑ 0 B/s (0 B)"); l.entryWidth() < want {
 			t.Errorf("entry width = %d, want at least %d", l.entryWidth(), want)
 		}
 		// The swatches are found where they are drawn.
@@ -206,8 +206,10 @@ func TestLegendSwatches(t *testing.T) {
 func TestSettingsDialog(t *testing.T) {
 	current := settings.Defaults()
 	current.Width = 1234
-	current.Intervals = settings.Intervals{CPU: 1, Memory: 5, Network: 3600}
+	current.Intervals = settings.Intervals{CPU: 1, Memory: 5, Network: 3600, Processes: 0.5}
 	current.CPUMode = settings.CPUTotal
+	current.ProcessSort, current.ProcessOrder = settings.SortMemory, settings.OrderAscending
+	current.ProcessFilter, current.ProcessView = settings.ProcessesUser, settings.ViewTree
 	current.Theme = settings.ThemeLight
 	current.SizeUnits = settings.SizeDecimal
 	current.Colours.SetCore(1, "#111111")
@@ -230,7 +232,7 @@ func TestSettingsDialog(t *testing.T) {
 		if rows := d.colourList.RowCount(); rows != 3+3+4+2 {
 			t.Errorf("the colour table has %d rows", rows)
 		}
-		if d.cpuInterval.Value() != 1 || d.memoryInterval.Value() != 5 || d.networkInterval.Value() != 3600 {
+		if d.cpuInterval.Value() != 1 || d.memoryInterval.Value() != 5 || d.networkInterval.Value() != 3600 || d.processesInterval.Value() != 0.5 {
 			t.Error("the intervals are not shown")
 		}
 		if d.cpuInterval.Minimum() != 0.1 || d.cpuInterval.Maximum() != 3600 || d.cpuInterval.Decimals() != 1 {
@@ -240,6 +242,7 @@ func TestSettingsDialog(t *testing.T) {
 			currentData(d.sizeUnits) != settings.SizeDecimal || currentData(d.rateUnits) != settings.RateBytes {
 			t.Error("the mode or theme is not shown")
 		}
+
 		if len(d.cores) != 3 || d.cores[0].colour != settings.DefaultCore(0) || d.cores[1].colour != "#111111" {
 			t.Errorf("cores = %d", len(d.cores))
 		}
@@ -248,6 +251,7 @@ func TestSettingsDialog(t *testing.T) {
 		}
 
 		d.networkInterval.SetValue(7)
+		d.processesInterval.SetValue(12.5)
 		selectData(d.cpuMode, settings.CPUCores)
 		selectData(d.theme, "")
 		selectData(d.rateUnits, settings.RateBits)
@@ -269,8 +273,13 @@ func TestSettingsDialog(t *testing.T) {
 	if got.Width != 1234 {
 		t.Errorf("Width = %d, want it kept", got.Width)
 	}
-	if got.Intervals != (settings.Intervals{CPU: 1, Memory: 5, Network: 7}) {
+	if got.Intervals != (settings.Intervals{CPU: 1, Memory: 5, Network: 7, Processes: 12.5}) {
 		t.Errorf("Intervals = %+v", got.Intervals)
+	}
+	// How the processes are shown is not in the dialog, and is kept.
+	if got.ProcessSort != settings.SortMemory || got.ProcessOrder != settings.OrderAscending ||
+		got.ProcessFilter != settings.ProcessesUser || got.ProcessView != settings.ViewTree {
+		t.Errorf("processes %q, %q, %q, %q, want them kept", got.ProcessSort, got.ProcessOrder, got.ProcessFilter, got.ProcessView)
 	}
 	if got.CPUMode != settings.CPUCores || got.Theme != "" {
 		t.Errorf("mode %q, theme %q", got.CPUMode, got.Theme)
@@ -374,6 +383,7 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 	current.Width, current.Height = 640, 480
 	current.Intervals.CPU = 9
 	current.Theme = settings.ThemeDark
+	current.ProcessSort, current.ProcessOrder = settings.SortName, settings.OrderAscending
 	current.Colours.Grid = "#123456"
 	current.Colours.Network = map[string]string{"eth0": "#222222", "wlan0": "#333333"}
 	current.AdapterAliases = map[string]string{"eth0": "Wired"}
@@ -621,7 +631,7 @@ func TestLegendClickCancelled(t *testing.T) {
 		l.Show()
 		l.Resize(1000, 10)
 		called := false
-		l.show([]entry{{"#ff0000", "eth0", "↓ 0 bytes/s (0 bytes)", func(string) { called = true }}})
+		l.show([]entry{{"#ff0000", "eth0", "↓ 0 B/s (0 B)", func(string) { called = true }}})
 		fm := l.FontMetrics()
 		x, y := l.swatchPlace(0, l.grid(), fm.Height())
 		if !l.click(x+1, y+1) || called {

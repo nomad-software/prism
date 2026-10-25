@@ -1,12 +1,16 @@
 # Prism
 
-Graphs of the use of the processors, memory and swap, and network adapters.
+Graphs of the use of the processors, memory and swap, and network adapters,
+and a table of the processes that are running.
 It is written in Go with Qt 6, through the
 [miqt](https://github.com/mappu/miqt) bindings, and runs on Linux and macOS.
 
 ![Prism](docs/screenshot.png)
 
 ## What it shows
+
+The window has two tabs: **Resources**, with the graphs, and **Processes**;
+Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
 
 - **CPU**: how busy each logical processor is, a line for each, or one line
   for all of them together (Settings > General > Display).
@@ -19,6 +23,23 @@ It is written in Go with Qt 6, through the
   its fastest. The legend says, beside each adapter's name, how fast it is
   downloading (↓) and uploading (↑), with how much it has in all in brackets.
   Adapters can be hidden in the settings.
+
+- **Processes**: every process, with its PID, name, how busy it is (as top
+  counts it, a percentage of one processor, so more than 100% for one
+  running on several), and how much memory it has ("—" for the kernel's own
+  threads, which have none of their own to count). Click a heading to sort
+  by it, and again to reverse it; it starts with the busiest first, and
+  keeps the order chosen for next time. The PID column is as wide as the
+  largest PID, and the others share the rest of the width, the name half of
+  it. Below the table, at the left, choose to see the processes of people
+  (user processes, the default), the system's (those of root, of services
+  and of the kernel) or all of them, and to see them as a list or as a
+  tree, each process under the one that started it; these choices are kept
+  for next time too. Choose a
+  process, then a signal (SIGKILL unless another is chosen), and **Send
+  Signal** sends it; the status bar says whether it was sent. A process that
+  has ended in the meantime is not sent it, even if its PID has been given
+  to another.
 
 A status bar along the bottom of the window has a handle in its corner to
 drag the window bigger or smaller by.
@@ -40,13 +61,18 @@ at what it first is.
 
 ### Where the statistics come from
 
-- **Linux**: `/proc/stat`, `/proc/meminfo`, and
-  `/sys/class/net/*/statistics/{rx,tx}_bytes`, and nothing else.
+- **Linux**: `/proc/stat`, `/proc/meminfo`,
+  `/sys/class/net/*/statistics/{rx,tx}_bytes`, and for each process
+  `/proc/<pid>/stat`, `/proc/<pid>/statm` and `/proc/<pid>/status`, and
+  nothing else.
 - **macOS**: the Mach kernel's processor and memory statistics
   (`host_processor_info`, `host_statistics64`), `sysctl` for the size of
   memory and the use of swap, and the 64 bit counters of the network
   adapters (`NET_RT_IFLIST2`). Memory in use is counted as Activity Monitor
-  counts it: memory of programs, wired, and compressed.
+  counts it: memory of programs, wired, and compressed. Processes are listed
+  by `sysctl`, with their time and memory from `proc_pid_rusage`, which
+  macOS only gives of other users' processes to root; theirs are shown as
+  "—".
 
 ## Settings
 
@@ -56,7 +82,7 @@ built with). On macOS these are in the application's menu.
 
 **File > Settings** (Ctrl+, or ⌘, on macOS) has:
 
-- **General**: the update interval of each statistic, in seconds to a tenth
+- **General**: the update interval of each statistic and of the processes, in seconds to a tenth
   of a second, from 0.1 to 3600 (2 by default); whether the processors have a line each or one for
   all; and the units: sizes in binary (KiB, MiB) or decimal (kB, MB) units,
   and network speeds in bytes (MiB/s) or bits (Mib/s) a second.
@@ -177,10 +203,11 @@ tab (macOS > Run workflow). `make macos` runs the same script on a Mac.
 
 ## Layout
 
-- `internal/stats` reads the counters of the system: `/proc` and `/sys` on
-  Linux, Mach and `sysctl` on macOS.
+- `internal/stats` reads the counters of the system and its processes, and
+  sends processes signals: `/proc` and `/sys` on Linux, Mach, `sysctl` and
+  `libproc` on macOS.
 - `internal/usage` works out from one reading to the next how busy the
-  processors were and how fast the adapters received and sent.
+  processors and processes were and how fast the adapters received and sent.
 - `internal/history` keeps the values of each line of a graph.
 - `internal/chart` does the arithmetic of the graphs: scales, labels, where
   each point goes, and how a legend is laid out.
@@ -188,7 +215,7 @@ tab (macOS > Run workflow). `make macos` runs the same script on a Mac.
 - `internal/instance` keeps to one copy running, and hands over to it.
 - `internal/desktop` writes the Linux desktop entry and its icon.
 - `internal/appicon` draws the icon, a prism: a triangle divided into Solarized red, blue and green thirds.
-- `internal/ui` is the window, the graphs and legends it paints, the
-  settings dialog and the about box.
+- `internal/ui` is the window, the graphs and legends it paints, the table
+  of processes, the settings dialog and the about box.
 - `.github/workflows` has `appimage.yml` and `macos.yml` (`v` tags, or by
   hand).

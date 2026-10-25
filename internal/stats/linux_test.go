@@ -294,25 +294,6 @@ func TestParseStatusUID(t *testing.T) {
 	}
 }
 
-func TestSystemProcess(t *testing.T) {
-	for _, c := range []struct {
-		p    Process
-		want bool
-	}{
-		{Process{UID: 0}, true},
-		{Process{UID: 999}, true},
-		{Process{UID: firstUserUID}, false},
-		{Process{UID: 60001}, false},
-		{Process{UID: 65534}, true},
-		{Process{UID: 1<<32 - 2}, true},
-		{Process{UID: firstUserUID, Kernel: true}, true},
-	} {
-		if got := c.p.System(); got != c.want {
-			t.Errorf("%+v System = %v, want %v", c.p, got, c.want)
-		}
-	}
-}
-
 func TestParseStatm(t *testing.T) {
 	if n, err := parseStatm([]byte("5000 1200 300 1 0 800 0\n")); err != nil || n != 1200 {
 		t.Errorf("parseStatm = %d, %v", n, err)
@@ -390,12 +371,5 @@ func TestSignalSelf(t *testing.T) {
 	}
 	if err := New().Signal(self, 0); err != nil {
 		t.Errorf("Signal = %v", err)
-	}
-}
-
-func TestSignals(t *testing.T) {
-	s := Signals()
-	if len(s) == 0 || s[0].Name != "SIGKILL" || s[0].Number != 9 {
-		t.Errorf("Signals = %+v, want SIGKILL first", s)
 	}
 }

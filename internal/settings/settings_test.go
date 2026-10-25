@@ -426,10 +426,17 @@ func TestClone(t *testing.T) {
 }
 
 func TestPrepared(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	// The configuration of programs is kept in XDG_CONFIG_HOME on Linux, and
+	// in the home folder on macOS, as TriggerAPI's tests have it.
+	config := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", config)
+	t.Setenv("HOME", config)
 	path, err := Prepared()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.HasPrefix(path, config) {
+		t.Errorf("Prepared = %q, want it in %q", path, config)
 	}
 	if info, err := os.Stat(filepath.Dir(path)); err != nil || !info.IsDir() {
 		t.Errorf("the folder of %q was not made: %v", path, err)
@@ -441,6 +448,7 @@ func TestPrepared(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("XDG_CONFIG_HOME", file)
+	t.Setenv("HOME", file)
 	if path, err := Prepared(); err == nil {
 		t.Errorf("Prepared = %q under a file, want an error", path)
 	}

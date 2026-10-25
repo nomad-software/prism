@@ -111,7 +111,7 @@ export LINUXDEPLOY_OUTPUT_VERSION="$VERSION"
 	--plugin qt
 
 # Qt asks the desktop what it looks like through a platform theme, and on
-# GNOME that is the GTK one: without it a dark desktop is not seen to be
+# a GTK desktop that is the GTK one: without it a dark desktop is not seen to be
 # dark, and the windows are light. The tool leaves it out, so it is copied in
 # here, by itself: GTK and what it uses are the desktop's own, and are not
 # put in the AppImage. Where there is no GTK it is not loaded and Qt carries
@@ -124,7 +124,7 @@ if [ -e "$THEMES/libqgtk3.so" ]; then
 fi
 
 # Without one of these the AppImage would be made, and then not start under
-# X11 or under Wayland, or not look like a GNOME desktop it is run on, so it
+# X11 or under Wayland, or not look like a GTK desktop it is run on, so it
 # is not made at all.
 missing=0
 for plugin in \

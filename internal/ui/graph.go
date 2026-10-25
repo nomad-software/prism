@@ -19,7 +19,7 @@ type line struct {
 
 // graph draws lines of values over time on a grid, with the values of the
 // lines of the grid up its right side and how long ago they are along its
-// bottom, as GNOME's System Monitor does.
+// bottom.
 type graph struct {
 	*qt.QWidget
 	lines []line

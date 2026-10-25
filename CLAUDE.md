@@ -1,6 +1,6 @@
 # Prism
 
-A desktop system monitor in Go with Qt 6 through the miqt bindings, modelled on ApeMail (`../apemail`) and on the Resources tab of GNOME's System Monitor. Linux is the primary OS; macOS is supported.
+A desktop system monitor in Go with Qt 6 through the miqt bindings, modelled on ApeMail (`../apemail`). Linux is the primary OS; macOS is supported.
 
 It graphs CPU use (a line per core, or one for all), memory and swap, and network traffic (a line per adapter, Download and Upload graphs side by side). Graphs and legends are painted on plain QWidgets. The menu bar has File (Settings… Ctrl+,, Quit Ctrl+Q) and Help (About Prism, Ctrl+I); on macOS the actions' roles move them into the application menu. A status bar along the bottom has a size grip to drag.
 

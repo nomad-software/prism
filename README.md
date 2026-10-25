@@ -1,9 +1,8 @@
 # Prism
 
-Graphs of the use of the processors, memory and swap, and network adapters,
-in the manner of the Resources tab of GNOME's System Monitor. It is written in
-Go with Qt 6, through the [miqt](https://github.com/mappu/miqt) bindings, and
-runs on Linux and macOS.
+Graphs of the use of the processors, memory and swap, and network adapters.
+It is written in Go with Qt 6, through the
+[miqt](https://github.com/mappu/miqt) bindings, and runs on Linux and macOS.
 
 ![Prism](docs/screenshot.png)
 
@@ -146,7 +145,7 @@ runs the tests and `packaging/appimage.sh` on Ubuntu 24.04:
   (AppImage > Run workflow), which leaves the AppImage as an artifact of the
   run to download.
 
-It runs under both X11 and Wayland, and on GNOME takes its colours, light or
+It runs under both X11 and Wayland, and on GTK desktops takes its colours, light or
 dark, from the desktop through Qt's GTK theme plugin. It runs on any system
 with glibc 2.39 or later: rolling distributions such as CachyOS and Arch,
 Ubuntu 24.04, Debian 13, Fedora 40 and anything newer.

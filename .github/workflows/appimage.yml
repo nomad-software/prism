@@ -25,7 +25,7 @@ jobs:
     steps:
       # Qt and the parts of it that are loaded while running, which go into
       # the AppImage: Wayland, X11's platform plugins, and the GTK theme, by
-      # which a dark GNOME desktop is seen to be dark.
+      # which a dark GTK desktop is seen to be dark.
       - name: Install what building needs
         run: |
           sudo apt-get update

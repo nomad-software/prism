@@ -55,7 +55,7 @@ func Dir() (string, error) {
 // of the program file, so that its windows are matched to the entry. The
 // icon is the path of its image file: a path and not the name of an icon of
 // the theme, which a desktop may not find in a folder it has a stale cache
-// of (as GNOME on Ubuntu 22.04 does), leaving the windows matched to the
+// of (as Ubuntu 22.04's desktop does), leaving the windows matched to the
 // entry with no icon at all.
 func Entry(exec, class, icon string) string {
 	var b strings.Builder

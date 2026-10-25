@@ -186,7 +186,7 @@ file with Qt inside it, which runs without installing anything. Make it
 executable and run it.
 
 It is built by a GitHub workflow (`.github/workflows/appimage.yml`), which
-runs the tests and `packaging/appimage.sh` on Ubuntu 24.04:
+runs `packaging/appimage.sh` on Ubuntu 24.04:
 
 - Pushing a tag starting with `v` builds it and attaches it to a release of
   that name: `git tag v1.0.0 && git push origin v1.0.0`.

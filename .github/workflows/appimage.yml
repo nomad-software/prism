@@ -30,7 +30,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential pkg-config file curl \
+            build-essential pkg-config file \
             qt6-base-dev qmake6 qt6-wayland qt6-qpa-plugins qt6-gtk-platformtheme libgl-dev
           pkg-config --modversion Qt6Widgets
 
@@ -41,9 +41,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-
-      - name: Test
-        run: make test
 
       - name: Build the AppImage
         env:

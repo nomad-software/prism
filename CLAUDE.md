@@ -43,7 +43,7 @@ The window has two tabs. Resources graphs CPU use (a line per core, or one for a
 
 ## Layout
 
-* `internal/stats`: reads counters and processes, and signals processes; /proc and /sys on Linux, Mach, sysctl and libproc via cgo on macOS (`system_darwin.go`, only built and tested by the macOS workflow).
+* `internal/stats`: reads counters and processes, and signals processes; /proc and /sys on Linux, Mach, sysctl and libproc via cgo on macOS (`system_darwin.go`, only built by the macOS workflow, which, as ApeMail's and TriggerAPI's, builds the app and runs no tests).
 * `internal/usage`: CPU busy % (of the processors and of each process) and network rates between readings.
 * `internal/history`: the points of each graph line.
 * `internal/chart`: scales, labels, point placement and legend layout (pure, no Qt).

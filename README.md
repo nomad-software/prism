@@ -222,9 +222,9 @@ software and will not open it. Either:
 Either is only needed once.
 
 It is built by a GitHub workflow (`.github/workflows/macos.yml`), which runs
-the tests and `packaging/macos.sh` on a Mac with Apple Silicon and Homebrew's
-Qt, when a `v` tag is pushed, as the AppImage is, or by hand from the Actions
-tab (macOS > Run workflow). `make macos` runs the same script on a Mac.
+`packaging/macos.sh` on a Mac with Apple Silicon and Homebrew's Qt, when a
+`v` tag is pushed, as the AppImage is, or by hand from the Actions tab (macOS
+> Run workflow). `make macos` runs the same script on a Mac.
 
 ## Layout
 

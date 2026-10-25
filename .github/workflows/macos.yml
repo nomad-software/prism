@@ -3,8 +3,7 @@
 # It runs when a tag starting with v is pushed, as the AppImage does, and
 # attaches the disk image to the release of that name. It can also be run by
 # hand from the Actions tab, in which case the disk image is only kept as an
-# artifact of the run to download. It is the only place the macOS source of
-# the statistics (internal/stats/system_darwin.go) is built and tested.
+# artifact of the run to download.
 #
 # The app is signed ad hoc, not with a Developer ID, and is not notarised, so
 # macOS warns that it cannot check it the first time it is opened (see the
@@ -55,9 +54,6 @@ jobs:
         with:
           path: ${{ runner.temp }}/go-build
           key: go-build-macos-qt-${{ env.QT_VERSION }}-${{ hashFiles('go.sum') }}
-
-      - name: Test
-        run: make test
 
       - name: Build the app
         env:

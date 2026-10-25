@@ -122,9 +122,7 @@ make icons      # draws the icons, after their drawing changes
 ```
 
 Build after every change, and lint with `staticcheck ./...` and
-`deadcode -test ./...`, which must both be clean. A GitHub workflow
-(`.github/workflows/build.yml`) also builds the program, vets it, runs the
-tests and lints it on every push and pull request.
+`deadcode -test ./...`, which must both be clean.
 
 Dependencies come from their upstream repositories only: the Qt bindings are
 `github.com/mappu/miqt`, and `go.mod` has no `replace` directives or local
@@ -192,5 +190,5 @@ tab (macOS > Run workflow). `make macos` runs the same script on a Mac.
 - `internal/appicon` draws the icon, a prism: a triangle divided into Solarized red, blue and green thirds.
 - `internal/ui` is the window, the graphs and legends it paints, the
   settings dialog and the about box.
-- `.github/workflows` has `build.yml` (every push and pull request),
-  `appimage.yml` and `macos.yml` (`v` tags, or by hand).
+- `.github/workflows` has `appimage.yml` and `macos.yml` (`v` tags, or by
+  hand).

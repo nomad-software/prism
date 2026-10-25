@@ -9,7 +9,6 @@ It graphs CPU use (a line per core, or one for all), memory and swap, and networ
 * Build the app after every change: `make build`, and `make vet` and `make test` when code changed.
     * Run them in the foreground, one at a time. The tests run without `-race`: the app runs on the Qt main thread, and a race build of miqt costs minutes.
     * Lint with the installed `staticcheck ./...` and `deadcode -test ./...`; both must be clean.
-    * CI (`.github/workflows/build.yml`) also builds, vets, tests and lints (staticcheck, deadcode) on every push and pull request.
 * Keep this file and README.md up to date with every change.
 * Dependencies come from their proper upstream remotes only.
     * Never use local dependencies or `replace` directives in go.mod, not even to point at a fork.
@@ -49,4 +48,4 @@ It graphs CPU use (a line per core, or one for all), memory and swap, and networ
 * `internal/instance`: keeping to one copy of the program running, and handing over to it (ApeMail's package). It needs no Qt.
 * `internal/desktop`: the Linux desktop entry and icon, written at every start (ApeMail's package). It needs no Qt.
 * `internal/ui`: the window, painted graphs and legends, settings dialog, about box, themes.
-* `packaging/` and `.github/workflows/`: AppImage and macOS app (`appimage.yml`, `macos.yml`, run on `v` tags or by hand), as ApeMail does, plus `build.yml`.
+* `packaging/` and `.github/workflows/`: AppImage and macOS app (`appimage.yml`, `macos.yml`, run on `v` tags or by hand), as ApeMail does.

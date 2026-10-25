@@ -41,6 +41,9 @@ func TestDuration(t *testing.T) {
 	if d := Duration(90); d != 90*time.Second {
 		t.Errorf("Duration(90) = %v", d)
 	}
+	if d := Duration(0.3); d != 300*time.Millisecond {
+		t.Errorf("Duration(0.3) = %v", d)
+	}
 }
 
 func TestLoadMissing(t *testing.T) {
@@ -65,7 +68,7 @@ func TestSaveLoad(t *testing.T) {
 	s := Defaults()
 	s.Width, s.Height, s.Maximized = 1000, 700, true
 	s.Theme = ThemeDark
-	s.Intervals = Intervals{CPU: 1, Memory: 30, Network: MaxInterval}
+	s.Intervals = Intervals{CPU: 0.5, Memory: 30, Network: MaxInterval}
 	s.CPUMode = CPUTotal
 	s.Colours.Grid = "#ff112233"
 	s.Colours.SetCore(2, "#abcdef")
@@ -95,7 +98,7 @@ func TestLoadNormalises(t *testing.T) {
 	data := `{
 		"width": 50, "height": 5000,
 		"theme": "purple",
-		"intervals": {"cpu": 0, "memory": 3601, "network": 7},
+		"intervals": {"cpu": 0.04, "memory": 3601, "network": 7.26},
 		"cpuMode": "sideways",
 		"hiddenAdapters": ["veth1", "lo", "veth1"],
 		"colours": {
@@ -115,7 +118,7 @@ func TestLoadNormalises(t *testing.T) {
 	if s.Theme != "" {
 		t.Errorf("Theme = %q, want the system's", s.Theme)
 	}
-	if want := (Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: 7}); s.Intervals != want {
+	if want := (Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: 7.3}); s.Intervals != want {
 		t.Errorf("Intervals = %+v, want %+v", s.Intervals, want)
 	}
 	if s.CPUMode != CPUCores {

@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -134,18 +133,27 @@ func TestNewWindow(t *testing.T) {
 				t.Errorf("%s timer runs before Start", name)
 			}
 		}
-		// There is no menu bar, but a button of the main menu.
-		if tw.MenuWidget() != nil {
-			t.Error("the window has a menu bar")
+		var menus []string
+		for _, a := range tw.MenuBar().Actions() {
+			menus = append(menus, a.Text())
 		}
-		var items []string
-		for _, a := range tw.menu.Actions() {
-			if !a.IsSeparator() {
-				items = append(items, a.Text())
+		if !slices.Equal(menus, []string{"&File", "&Help"}) {
+			t.Fatalf("menus = %q", menus)
+		}
+		items := func(m *qt.QMenu) []string {
+			var items []string
+			for _, a := range m.Actions() {
+				if !a.IsSeparator() {
+					items = append(items, a.Text())
+				}
 			}
+			return items
 		}
-		if !slices.Equal(items, []string{"&Settings…", "&About Prism", "&Quit"}) {
-			t.Errorf("main menu = %q", items)
+		if got := items(tw.file); !slices.Equal(got, []string{"&Settings…", "&Quit"}) {
+			t.Errorf("File menu = %q", got)
+		}
+		if got := items(tw.help); !slices.Equal(got, []string{"&About Prism"}) {
+			t.Errorf("Help menu = %q", got)
 		}
 		if !tw.StatusBar().IsSizeGripEnabled() {
 			t.Error("the status bar has no handle to drag")
@@ -188,66 +196,29 @@ func TestStart(t *testing.T) {
 	})
 }
 
-// menuAction returns the action of the main menu with the text.
+// menuAction returns the action of the menu bar's menus with the text.
 func menuAction(t *testing.T, tw *testWindow, text string) *qt.QAction {
 	t.Helper()
-	for _, a := range tw.menu.Actions() {
-		if a.Text() == text {
-			return a
+	for _, m := range []*qt.QMenu{tw.file, tw.help} {
+		for _, a := range m.Actions() {
+			if a.Text() == text {
+				return a
+			}
 		}
 	}
-	t.Fatalf("the main menu has no %s", text)
+	t.Fatalf("the menus have no %s", text)
 	return nil
-}
-
-func TestMenuButton(t *testing.T) {
-	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
-		tw.Resize(900, 700)
-		tw.Show()
-		defer tw.Hide()
-		b := tw.menuButton
-		if !b.IsVisible() {
-			t.Fatal("the menu button is not shown")
-		}
-		// It is at the right of the CPU heading, in line with the right of
-		// the graph.
-		origin := qt.NewQPoint()
-		defer origin.Delete()
-		at := b.MapTo2(tw.cpu.QWidget, origin)
-		defer runtime.KeepAlive(at)
-		if at.Y() != 0 {
-			t.Errorf("the menu button is %d below the top of the CPU section", at.Y())
-		}
-		if right, graph := at.X()+b.Width(), tw.cpu.graph.X()+tw.cpu.graph.Width(); right != graph {
-			t.Errorf("the menu button ends at %d, and the graph at %d", right, graph)
-		}
-		// Clicking it shows the menu, below it.
-		b.Click()
-		if !tw.menu.IsVisible() {
-			t.Fatal("clicking the menu button does not show the menu")
-		}
-		bottom := qt.NewQPoint2(0, b.Height())
-		defer bottom.Delete()
-		pos := b.MapToGlobalWithQPoint(bottom)
-		defer runtime.KeepAlive(pos)
-		if tw.menu.Y() < pos.Y() {
-			t.Errorf("the menu is at %d, above the bottom of its button at %d", tw.menu.Y(), pos.Y())
-		}
-		tw.menu.Hide()
-	})
 }
 
 func TestMenuShortcuts(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
-		// The actions with shortcuts are the window's, so that their
-		// shortcuts work while the menu is hidden.
-		for _, text := range []string{"&Settings…", "&Quit"} {
-			a := menuAction(t, tw, text)
-			if !slices.ContainsFunc(tw.Actions(), func(b *qt.QAction) bool { return b.UnsafePointer() == a.UnsafePointer() }) {
-				t.Errorf("%s is not an action of the window", text)
+		for text, want := range map[string]string{"&Settings…": "Ctrl+,", "&Quit": "Ctrl+Q", "&About Prism": "Ctrl+I"} {
+			shortcut := menuAction(t, tw, text).Shortcut()
+			if got := shortcut.ToString(); got != want {
+				t.Errorf("%s shortcut = %q, want %q", text, got, want)
 			}
+			shortcut.Delete()
 		}
 	})
 }
@@ -293,7 +264,7 @@ func TestQuit(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
 		var quit *qt.QAction
-		for _, a := range tw.menu.Actions() {
+		for _, a := range tw.file.Actions() {
 			if a.Text() == "&Quit" {
 				quit = a
 			}
@@ -608,11 +579,11 @@ func TestApplySettings(t *testing.T) {
 		s := tw.config
 		s.Width, s.Height = 1, 1
 		s.Theme = settings.ThemeDark
-		s.Intervals = settings.Intervals{CPU: 1, Memory: 90, Network: 3600}
+		s.Intervals = settings.Intervals{CPU: 0.5, Memory: 90, Network: 3600}
 		s.Colours.Memory = "#010203"
 		tw.applySettings(s)
 
-		if tw.cpu.timer.Interval() != 1000 || tw.memory.timer.Interval() != 90_000 || tw.network.timer.Interval() != 3_600_000 {
+		if tw.cpu.timer.Interval() != 500 || tw.memory.timer.Interval() != 90_000 || tw.network.timer.Interval() != 3_600_000 {
 			t.Errorf("intervals = %d, %d, %d", tw.cpu.timer.Interval(), tw.memory.timer.Interval(), tw.network.timer.Interval())
 		}
 		if tw.memory.graph.span != 3*time.Minute {
@@ -643,13 +614,13 @@ func TestEditSettings(t *testing.T) {
 		if !d.IsVisible() {
 			t.Error("the settings are not shown")
 		}
-		d.memoryInterval.SetValue(42)
+		d.memoryInterval.SetValue(4.2)
 		d.Accept()
 		// Accept does not go through the buttons; they are tested with
 		// the dialog itself.
 		tw.applySettings(d.chosen(tw.config))
-		if tw.config.Intervals.Memory != 42 {
-			t.Errorf("memory interval = %d", tw.config.Intervals.Memory)
+		if tw.config.Intervals.Memory != 4.2 {
+			t.Errorf("memory interval = %v", tw.config.Intervals.Memory)
 		}
 	})
 }
@@ -776,7 +747,7 @@ func TestSettingsAction(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
 		var action *qt.QAction
-		for _, a := range tw.menu.Actions() {
+		for _, a := range tw.file.Actions() {
 			if a.Text() == "&Settings…" {
 				action = a
 			}

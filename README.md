@@ -51,15 +51,14 @@ at what it first is.
 
 ## Settings
 
-The menu is the button of three lines at the right of the CPU heading. It
-has Settings, About Prism (the version of Qt and the licences of what Prism
-is built with) and Quit (Ctrl+Q). On macOS these are also in the
-application's menu.
+The menu bar has **File** (Settings, Quit with Ctrl+Q) and **Help** (About
+Prism with Ctrl+I: the version of Qt and the licences of what Prism is
+built with). On macOS these are in the application's menu.
 
-**Settings** (Ctrl+, or ⌘, on macOS) has:
+**File > Settings** (Ctrl+, or ⌘, on macOS) has:
 
-- **General**: the update interval of each statistic, in seconds from 1 to
-  3600 (2 by default); whether the processors have a line each or one for
+- **General**: the update interval of each statistic, in seconds to a tenth
+  of a second, from 0.1 to 3600 (2 by default); whether the processors have a line each or one for
   all; and the units: sizes in binary (KiB, MiB) or decimal (kB, MB) units,
   and network speeds in bytes (MiB/s) or bits (Mib/s) a second.
 - **Network**: every network adapter that has been seen, ticked if it is
@@ -168,7 +167,7 @@ tab (macOS > Run workflow). `make macos` runs the same script on a Mac.
   each point goes, and how a legend is laid out.
 - `internal/settings` loads and saves the settings, and gives colours.
 - `internal/appicon` draws the icon, a prism: a triangle divided into Solarized red, blue and green thirds.
-- `internal/ui` is the window, the graphs and legends it paints, its menu
-  button, the settings dialog and the about box.
+- `internal/ui` is the window, the graphs and legends it paints, the
+  settings dialog and the about box.
 - `.github/workflows` has `build.yml` (every push and pull request),
   `appimage.yml` and `macos.yml` (`v` tags, or by hand).

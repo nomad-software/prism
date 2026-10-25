@@ -6,6 +6,7 @@ package settings
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -19,9 +20,10 @@ const (
 	minSize       = 200
 )
 
-// The intervals the statistics can be read at, in seconds.
+// The intervals the statistics can be read at, in seconds, to a tenth of a
+// second.
 const (
-	MinInterval     = 1
+	MinInterval     = 0.1
 	MaxInterval     = 60 * 60
 	DefaultInterval = 2
 )
@@ -101,17 +103,17 @@ func (s Settings) AdapterLabel(adapter string) string {
 	return adapter
 }
 
-// Intervals are how often each statistic is read, in seconds, from
-// MinInterval to MaxInterval.
+// Intervals are how often each statistic is read, in seconds to a tenth of
+// a second, from MinInterval to MaxInterval.
 type Intervals struct {
-	CPU     int `json:"cpu"`
-	Memory  int `json:"memory"`
-	Network int `json:"network"`
+	CPU     float64 `json:"cpu"`
+	Memory  float64 `json:"memory"`
+	Network float64 `json:"network"`
 }
 
-// Duration returns an interval as a duration.
-func Duration(seconds int) time.Duration {
-	return time.Duration(seconds) * time.Second
+// Duration returns an interval as a duration, to the millisecond.
+func Duration(seconds float64) time.Duration {
+	return time.Duration(math.Round(seconds*1000)) * time.Millisecond
 }
 
 // Defaults returns the settings the program starts with.
@@ -194,8 +196,11 @@ func (s *Settings) normalise() {
 	if s.RateUnits != RateBytes && s.RateUnits != RateBits {
 		s.RateUnits = d.RateUnits
 	}
-	for _, i := range []*int{&s.Intervals.CPU, &s.Intervals.Memory, &s.Intervals.Network} {
-		if *i < MinInterval || *i > MaxInterval {
+	for _, i := range []*float64{&s.Intervals.CPU, &s.Intervals.Memory, &s.Intervals.Network} {
+		// An interval is kept to a tenth of a second, as it is set; one out
+		// of range, or not a number, is the default.
+		*i = math.Round(*i*10) / 10
+		if !(*i >= MinInterval && *i <= MaxInterval) {
 			*i = DefaultInterval
 		}
 	}

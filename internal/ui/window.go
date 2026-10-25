@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"maps"
 	"os"
-	"runtime"
 	"slices"
 	"time"
 
@@ -30,10 +29,8 @@ type Window struct {
 	source stats.Source
 	// now is the time, which tests set.
 	now func() time.Time
-	// menu is the main menu, shown by menuButton, a button of three lines
-	// at the right of the CPU heading.
-	menu       *qt.QMenu
-	menuButton *qt.QToolButton
+	// file and help are the File and Help menus.
+	file, help *qt.QMenu
 
 	cpu struct {
 		section
@@ -68,10 +65,9 @@ type Window struct {
 // what went wrong reading it is said, and the timer it is read by.
 type section struct {
 	*qt.QWidget
-	layout  *qt.QVBoxLayout
-	heading *qt.QHBoxLayout
-	errors  *qt.QLabel
-	timer   *qt.QTimer
+	layout *qt.QVBoxLayout
+	errors *qt.QLabel
+	timer  *qt.QTimer
 }
 
 // adapter is what is kept of a network adapter.
@@ -104,13 +100,13 @@ func NewWindow(path string, source stats.Source) *Window {
 	// Dialogs take their icon from the application.
 	qt.QGuiApplication_SetWindowIcon(icon)
 	w.Resize(w.config.Width, w.config.Height)
+	w.makeMenus()
 
 	central := qt.NewQWidget2()
 	layout := qt.NewQVBoxLayout(central)
 	layout.SetContentsMargins(32, 12, 32, 32)
 	layout.SetSpacing(18)
 	w.makeCPU()
-	w.makeMenu()
 	w.makeMemory()
 	w.makeNetwork()
 	layout.AddWidget2(w.cpu.QWidget, 1)
@@ -153,55 +149,38 @@ func (w *Window) Start() {
 
 // newTimer returns a timer, not yet started, that calls read at the interval,
 // in seconds.
-func (w *Window) newTimer(interval int, read func()) *qt.QTimer {
+func (w *Window) newTimer(interval float64, read func()) *qt.QTimer {
 	t := qt.NewQTimer2(w.QObject)
 	t.SetInterval(int(settings.Duration(interval) / time.Millisecond))
 	t.OnTimeout(read)
 	return t
 }
 
-// makeMenu makes the main menu, and the button at the right of the CPU
-// heading that shows it. Its actions are the window's too, so that their
-// shortcuts work while the menu is not shown. On macOS they are also in a
-// menu of the menu bar, from which their roles move them into the
-// application's menu, as is usual there.
-func (w *Window) makeMenu() {
-	w.menu = qt.NewQMenu(w.QWidget)
-	settingsAction := w.menu.AddActionWithText("&Settings…")
+// makeMenus makes the menu bar: a File menu and a Help menu. On macOS the
+// roles of their actions move them into the application's menu.
+func (w *Window) makeMenus() {
+	w.file = w.MenuBar().AddMenuWithTitle("&File")
+	settingsAction := w.file.AddActionWithText("&Settings…")
 	settingsAction.SetMenuRole(qt.QAction__PreferencesRole)
 	shortcut := qt.NewQKeySequence2("Ctrl+,")
 	settingsAction.SetShortcut(shortcut)
 	shortcut.Delete()
 	settingsAction.OnTriggered(func() { w.editSettings() })
-	about := w.menu.AddActionWithText("&About Prism")
-	about.SetMenuRole(qt.QAction__AboutRole)
-	about.OnTriggered(func() { showAbout(w.QWidget) })
-	w.menu.AddSeparator()
-	quit := w.menu.AddActionWithText("&Quit")
+	w.file.AddSeparator()
+	quit := w.file.AddActionWithText("&Quit")
 	shortcut = qt.NewQKeySequence2("Ctrl+Q")
 	quit.SetShortcut(shortcut)
 	shortcut.Delete()
 	quit.SetMenuRole(qt.QAction__QuitRole)
 	quit.OnTriggered(func() { w.Close() })
-	w.AddActions(w.menu.Actions())
-	if runtime.GOOS == "darwin" {
-		w.MenuBar().AddMenuWithTitle("&File").AddActions(w.menu.Actions())
-	}
 
-	w.menuButton = newMenuButton()
-	w.menuButton.OnClicked(w.showMenu)
-	w.cpu.heading.AddWidget(w.menuButton.QWidget)
-}
-
-// showMenu shows the main menu below its button, their right edges in line.
-func (w *Window) showMenu() {
-	hint := w.menu.SizeHint()
-	at := qt.NewQPoint2(w.menuButton.Width()-hint.Width(), w.menuButton.Height())
-	defer at.Delete()
-	runtime.KeepAlive(hint)
-	pos := w.menuButton.MapToGlobalWithQPoint(at)
-	defer runtime.KeepAlive(pos)
-	w.menu.Popup(pos)
+	w.help = w.MenuBar().AddMenuWithTitle("&Help")
+	about := w.help.AddActionWithText("&About Prism")
+	about.SetMenuRole(qt.QAction__AboutRole)
+	shortcut = qt.NewQKeySequence2("Ctrl+I")
+	about.SetShortcut(shortcut)
+	shortcut.Delete()
+	about.OnTriggered(func() { showAbout(w.QWidget) })
 }
 
 // newSection makes the part of the window with the heading.
@@ -211,20 +190,17 @@ func newSection(title string) section {
 	s.layout.SetContentsMargins(0, 0, 0, 0)
 	s.layout.SetSpacing(6)
 
-	s.heading = qt.NewQHBoxLayout2()
+	heading := qt.NewQHBoxLayout2()
 	label := qt.NewQLabel3(title)
 	font := qt.NewQFont5(label.Font())
 	font.SetBold(true)
 	label.SetFont(font)
 	font.Delete()
-	s.heading.AddWidget(label.QWidget)
+	heading.AddWidget(label.QWidget)
 	s.errors = qt.NewQLabel2()
 	s.errors.SetVisible(false)
-	s.heading.AddWidget2(s.errors.QWidget, 1)
-	// What is added after the errors is kept to the right while they are
-	// hidden.
-	s.heading.AddStretch()
-	s.layout.AddLayout(s.heading.QLayout)
+	heading.AddWidget2(s.errors.QWidget, 1)
+	s.layout.AddLayout(heading.QLayout)
 	return s
 }
 
@@ -281,7 +257,7 @@ func (w *Window) makeNetwork() {
 }
 
 // span returns the time a graph read at the interval, in seconds, spans.
-func span(interval int) time.Duration {
+func span(interval float64) time.Duration {
 	return history.Span(settings.Duration(interval))
 }
 
@@ -568,7 +544,7 @@ func (w *Window) applySettings(s settings.Settings) {
 	w.config = s
 	for _, t := range []struct {
 		timer    *qt.QTimer
-		interval int
+		interval float64
 	}{
 		{w.cpu.timer, s.Intervals.CPU},
 		{w.memory.timer, s.Intervals.Memory},

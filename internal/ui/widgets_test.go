@@ -233,8 +233,8 @@ func TestSettingsDialog(t *testing.T) {
 		if d.cpuInterval.Value() != 1 || d.memoryInterval.Value() != 5 || d.networkInterval.Value() != 3600 {
 			t.Error("the intervals are not shown")
 		}
-		if d.cpuInterval.Minimum() != 1 || d.cpuInterval.Maximum() != 3600 {
-			t.Errorf("interval range = %d to %d", d.cpuInterval.Minimum(), d.cpuInterval.Maximum())
+		if d.cpuInterval.Minimum() != 0.1 || d.cpuInterval.Maximum() != 3600 || d.cpuInterval.Decimals() != 1 {
+			t.Errorf("interval range = %v to %v, to %d places", d.cpuInterval.Minimum(), d.cpuInterval.Maximum(), d.cpuInterval.Decimals())
 		}
 		if currentData(d.cpuMode) != settings.CPUTotal || currentData(d.theme) != settings.ThemeLight ||
 			currentData(d.sizeUnits) != settings.SizeDecimal || currentData(d.rateUnits) != settings.RateBytes {

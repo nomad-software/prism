@@ -17,7 +17,7 @@ import (
 // graphs are drawn in.
 type settingsDialog struct {
 	*qt.QDialog
-	cpuInterval, memoryInterval, networkInterval *qt.QSpinBox
+	cpuInterval, memoryInterval, networkInterval *qt.QDoubleSpinBox
 	cpuMode, theme, sizeUnits, rateUnits         *qt.QComboBox
 	// shown lists the network adapters, in the order of names, each ticked
 	// if it is shown, with its alias beside it.
@@ -387,9 +387,12 @@ func plainPage(page *qt.QWidget) *qt.QWidget {
 	return page
 }
 
-// newIntervalBox returns a box for an interval, in seconds.
-func newIntervalBox() *qt.QSpinBox {
-	b := qt.NewQSpinBox2()
+// newIntervalBox returns a box for an interval, in seconds to a tenth of a
+// second, which its arrows change by half a second.
+func newIntervalBox() *qt.QDoubleSpinBox {
+	b := qt.NewQDoubleSpinBox2()
+	b.SetDecimals(1)
+	b.SetSingleStep(0.5)
 	b.SetRange(settings.MinInterval, settings.MaxInterval)
 	b.SetSuffix(" s")
 	b.SetAccelerated(true)

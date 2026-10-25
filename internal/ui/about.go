@@ -42,17 +42,11 @@ func licenceText() string {
 		"by Ethan Schoonover, used under the MIT licence.</p>"
 }
 
-// aboutDialog is the about box: the program's icon beside what it is, and
-// the notices of the licences beneath in a frame of the style's own, in the
-// colours of the theme.
-type aboutDialog struct {
-	*qt.QDialog
-	// notices is the frame around the notices of the licences.
-	notices *qt.QFrame
-}
-
-func newAboutDialog(parent *qt.QWidget) *aboutDialog {
-	d := &aboutDialog{QDialog: qt.NewQDialog(parent)}
+// newAboutDialog returns the about box: the program's icon beside what it
+// is, and the notices of the licences beneath in a frame of the style's own,
+// in the colours of the theme.
+func newAboutDialog(parent *qt.QWidget) *qt.QDialog {
+	d := qt.NewQDialog(parent)
 	d.SetWindowTitle("About Prism")
 	d.SetMinimumWidth(aboutWidth)
 
@@ -77,10 +71,10 @@ func newAboutDialog(parent *qt.QWidget) *aboutDialog {
 	font.SetPointSizeF(font.PointSizeF() * 0.9)
 	licences.SetFont(font)
 
-	d.notices = qt.NewQFrame2()
-	d.notices.SetFrameShape(qt.QFrame__StyledPanel)
-	d.notices.SetFrameShadow(qt.QFrame__Sunken)
-	frameLayout := qt.NewQVBoxLayout(d.notices.QWidget)
+	notices := qt.NewQFrame2()
+	notices.SetFrameShape(qt.QFrame__StyledPanel)
+	notices.SetFrameShadow(qt.QFrame__Sunken)
+	frameLayout := qt.NewQVBoxLayout(notices.QWidget)
 	frameLayout.SetContentsMargins(12, 8, 12, 8)
 	frameLayout.AddWidget(licences.QWidget)
 
@@ -91,10 +85,10 @@ func newAboutDialog(parent *qt.QWidget) *aboutDialog {
 	layout.SetContentsMargins(20, 20, 20, 16)
 	layout.SetSpacing(16)
 	layout.AddLayout(top.QLayout)
-	layout.AddWidget(d.notices.QWidget)
+	layout.AddWidget(notices.QWidget)
 	layout.AddWidget(buttons.QWidget)
 
-	fitDialog(d.QDialog, aboutWidth)
+	fitDialog(d, aboutWidth)
 	return d
 }
 
@@ -125,7 +119,7 @@ func fitDialog(d *qt.QDialog, width int) {
 
 // showAbout shows the about box, without waiting for it, and deletes it once
 // it is closed.
-func showAbout(parent *qt.QWidget) *aboutDialog {
+func showAbout(parent *qt.QWidget) *qt.QDialog {
 	d := newAboutDialog(parent)
 	// A dialog is not destroyed by being closed.
 	d.OnFinished(func(int) { d.DeleteLater() })

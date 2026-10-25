@@ -262,7 +262,9 @@ func span(interval float64) time.Duration {
 }
 
 // sampleCPU reads the times of the processors, and shows how busy they were
-// since they were last read.
+// since they were last read. Until the second reading, and for a processor
+// until its own second, the lines are 0, drawn across the whole graph from
+// the first.
 func (w *Window) sampleCPU() {
 	c, err := w.source.CPU()
 	w.cpu.report(err)
@@ -275,28 +277,25 @@ func (w *Window) sampleCPU() {
 		w.cpu.cores = append(w.cpu.cores, history.Series{})
 	}
 	all, cores, ok := w.cpu.usage.Update(c)
+	if ok {
+		w.cpu.measured = true
+	}
 	now := w.now()
-	if !ok {
-		// Until the second reading the lines are 0 across the graph.
-		s := span(w.config.Intervals.CPU)
-		w.cpu.all.Fill(now, s, 0)
-		w.cpu.all.Add(now, 0)
-		for i := range w.cpu.cores {
-			w.cpu.cores[i].Fill(now, s, 0)
-			w.cpu.cores[i].Add(now, 0)
-		}
-		w.showCPU()
-		return
+	s := span(w.config.Intervals.CPU)
+	add := func(series *history.Series, v float64) {
+		series.Fill(now, s, 0)
+		series.Add(now, v)
+		series.Trim(now.Add(-s))
 	}
-	w.cpu.measured = true
-	w.cpu.all.Add(now, all)
-	for i, busy := range cores {
-		w.cpu.cores[i].Add(now, busy)
-	}
-	before := now.Add(-span(w.config.Intervals.CPU))
-	w.cpu.all.Trim(before)
+	add(&w.cpu.all, all)
 	for i := range w.cpu.cores {
-		w.cpu.cores[i].Trim(before)
+		// A processor that is no longer read, as one taken offline, is
+		// idle.
+		busy := 0.0
+		if i < len(cores) {
+			busy = cores[i]
+		}
+		add(&w.cpu.cores[i], busy)
 	}
 	w.showCPU()
 }
@@ -337,19 +336,14 @@ func (w *Window) showCPU() {
 	}
 }
 
-// lastPercent writes the newest value of the series as a percentage.
-func lastPercent(s *history.Series) string {
-	p, _ := s.Last()
-	return chart.FormatPercent(p.V)
-}
-
 // cpuPercent writes the newest use of a processor, or "—" while it is not
 // yet known.
 func (w *Window) cpuPercent(s *history.Series) string {
 	if !w.cpu.measured {
 		return "—"
 	}
-	return lastPercent(s)
+	p, _ := s.Last()
+	return chart.FormatPercent(p.V)
 }
 
 // sampleMemory reads the use of memory and swap, and shows it.
@@ -447,6 +441,7 @@ func (w *Window) sampleNetwork() {
 		return
 	}
 	now := w.now()
+	s := span(w.config.Intervals.Network)
 	added := false
 	for _, a := range w.network.adapters {
 		a.present = false
@@ -460,15 +455,15 @@ func (w *Window) sampleNetwork() {
 		a.present, a.rate = true, rate
 		// Until an adapter's second reading its lines are 0 across the
 		// graphs.
-		a.received.Fill(now, span(w.config.Intervals.Network), 0)
-		a.sent.Fill(now, span(w.config.Intervals.Network), 0)
+		a.received.Fill(now, s, 0)
+		a.sent.Fill(now, s, 0)
 		a.received.Add(now, rate.Received)
 		a.sent.Add(now, rate.Sent)
 		if _, ok := w.config.Colours.Adapter(name); ok {
 			added = true
 		}
 	}
-	before := now.Add(-span(w.config.Intervals.Network))
+	before := now.Add(-s)
 	for name, a := range w.network.adapters {
 		a.received.Trim(before)
 		a.sent.Trim(before)
@@ -509,8 +504,8 @@ func (w *Window) showNetwork() {
 		largestSent = max(largestSent, a.sent.Max(since))
 		if a.present {
 			entries = append(entries, entry{colour, w.config.AdapterLabel(name), fmt.Sprintf("↓ %s (%s)   ↑ %s (%s)",
-				u.Rate(a.rate.Received), u.Size(float64(a.rate.NetCounters.Received)),
-				u.Rate(a.rate.Sent), u.Size(float64(a.rate.NetCounters.Sent))),
+				u.Rate(a.rate.Received), u.Size(float64(a.rate.Total.Received)),
+				u.Rate(a.rate.Sent), u.Size(float64(a.rate.Total.Sent))),
 				w.colourSetter(func(c *settings.Colours, colour string) { c.Network[name] = colour })})
 		}
 	}

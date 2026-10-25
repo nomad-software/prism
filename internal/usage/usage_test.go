@@ -56,7 +56,7 @@ func TestNetwork(t *testing.T) {
 	var n Network
 	start := time.Unix(1_700_000_000, 0)
 	first := n.Update(start, map[string]stats.NetCounters{"eth0": {Received: 1000, Sent: 100}})
-	want := map[string]Rate{"eth0": {NetCounters: stats.NetCounters{Received: 1000, Sent: 100}}}
+	want := map[string]Rate{"eth0": {Total: stats.NetCounters{Received: 1000, Sent: 100}}}
 	if !reflect.DeepEqual(first, want) {
 		t.Errorf("first Update = %+v, want %+v", first, want)
 	}
@@ -67,8 +67,8 @@ func TestNetwork(t *testing.T) {
 	})
 	want = map[string]Rate{
 		// Sent went back, as when the adapter is reset.
-		"eth0":  {Received: 1000, Sent: 0, NetCounters: stats.NetCounters{Received: 3000, Sent: 50}},
-		"wlan0": {NetCounters: stats.NetCounters{Received: 7, Sent: 7}},
+		"eth0":  {Received: 1000, Sent: 0, Total: stats.NetCounters{Received: 3000, Sent: 50}},
+		"wlan0": {Total: stats.NetCounters{Received: 7, Sent: 7}},
 	}
 	if !reflect.DeepEqual(second, want) {
 		t.Errorf("second Update = %+v, want %+v", second, want)

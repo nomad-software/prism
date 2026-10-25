@@ -453,3 +453,84 @@ func TestDefaultsReadable(t *testing.T) {
 		}
 	}
 }
+
+func TestSaveFailsLeavesOldFile(t *testing.T) {
+	dir := t.TempDir()
+	// A folder where the file goes cannot be replaced by it, and the
+	// temporary file the settings were written to is not left behind.
+	path := filepath.Join(dir, "settings.json")
+	if err := os.MkdirAll(filepath.Join(path, "inside"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := Defaults().Save(path); err == nil {
+		t.Error("Save over a folder succeeded")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("the folder has %d files, want only the one in the way", len(entries))
+	}
+}
+
+func TestSaveReplaces(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	s := Defaults()
+	s.Theme = ThemeDark
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	s.Theme = ThemeLight
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	if got := Load(path).Theme; got != ThemeLight {
+		t.Errorf("Theme = %q after saving again, want %q", got, ThemeLight)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(data), "}\n") {
+		t.Error("the file does not end with a newline")
+	}
+}
+
+func TestLoadRoundsIntervals(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	for _, c := range []struct {
+		json string
+		want float64
+	}{
+		{`0.14`, 0.1},
+		{`0.16`, 0.2},
+		{`2.55`, 2.6},
+		{`3600.04`, 3600},
+		// Out of range, once rounded, or not a number, is the default.
+		{`0.04`, DefaultInterval},
+		{`3600.06`, DefaultInterval},
+		{`-1`, DefaultInterval},
+		{`0`, DefaultInterval},
+		{`"5"`, DefaultInterval},
+	} {
+		data := fmt.Sprintf(`{"intervals": {"cpu": %s, "memory": 1, "network": 1}}`, c.json)
+		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := Load(path).Intervals.CPU; got != c.want {
+			t.Errorf("cpu interval %s = %v, want %v", c.json, got, c.want)
+		}
+	}
+}
+
+func TestShownSorted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	data := `{"hiddenAdapters": ["wlan0", "eth0", "wlan0"], "adapterAliases": {"eth0": "  ", "lo": " Loop "}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := Load(path)
+	if want := []string{"eth0", "wlan0"}; !reflect.DeepEqual(s.HiddenAdapters, want) {
+		t.Errorf("HiddenAdapters = %v, want %v", s.HiddenAdapters, want)
+	}
+	if want := map[string]string{"lo": "Loop"}; !reflect.DeepEqual(s.AdapterAliases, want) {
+		t.Errorf("AdapterAliases = %v, want %v", s.AdapterAliases, want)
+	}
+}

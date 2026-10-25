@@ -52,7 +52,8 @@ func (c *CPU) Update(now stats.CPU) (all float64, cores []float64, ok bool) {
 // which they are worked out from.
 type Rate struct {
 	Received, Sent float64
-	stats.NetCounters
+	// Total is how much it has received and sent in all.
+	Total stats.NetCounters
 }
 
 // Network works out how fast network adapters receive and send from one
@@ -70,7 +71,7 @@ func (n *Network) Update(at time.Time, now map[string]stats.NetCounters) map[str
 	seconds := at.Sub(n.at).Seconds()
 	rates := make(map[string]Rate, len(now))
 	for name, c := range now {
-		r := Rate{NetCounters: c}
+		r := Rate{Total: c}
 		if before, ok := n.last[name]; ok && seconds > 0 {
 			r.Received = perSecond(before.Received, c.Received, seconds)
 			r.Sent = perSecond(before.Sent, c.Sent, seconds)

@@ -62,7 +62,7 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 	generalForm.AddRow3("CPU", d.cpuInterval.QWidget)
 	generalForm.AddRow3("Memory and swap", d.memoryInterval.QWidget)
 	generalForm.AddRow3("Network", d.networkInterval.QWidget)
-	generalForm.AddRowWithWidget(note("How often each is read, from a second to an hour. " +
+	generalForm.AddRowWithWidget(note("How often each is read, from a tenth of a second to an hour. " +
 		"A graph spans a minute, or two intervals where they are longer.").QWidget)
 	display := sectionHeading("Display")
 	display.SetContentsMargins(0, 12, 0, 0)

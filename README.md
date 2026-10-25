@@ -86,6 +86,17 @@ The settings, and the size of the window, are kept in
 programs, as ApeMail's are: `~/.config` on Linux (or `$XDG_CONFIG_HOME`), and
 `~/Library/Application Support` on macOS.
 
+## Desktop entry
+
+On Linux, every time it starts, Prism adds itself to the desktop's
+applications, so that it can be started from the menu and kept in a dock or
+sidebar: it writes `~/.local/share/applications/prism.desktop` and its icon
+to `~/.local/share/icons/hicolor/256x256/apps/prism.png` (or under
+`$XDG_DATA_HOME`). The entry starts the copy that ran last, wherever it is,
+the AppImage if it was run from one. If the desktop keeps showing an older
+icon after an update, it has the old one cached: logging out and in again
+clears it (on KDE, so does deleting `~/.cache/icon-cache.kcache`).
+
 ## Building
 
 It needs Go, a C++ compiler, pkg-config and the Qt 6 development files (on
@@ -101,9 +112,10 @@ make screenshot # draws docs/screenshot.png
 make icons      # draws the icons, after their drawing changes
 ```
 
-Build after every change. A GitHub workflow (`.github/workflows/build.yml`)
-also builds the program, vets it and runs the tests on every push and pull
-request.
+Build after every change, and lint with `staticcheck ./...` and
+`deadcode -test ./...`, which must both be clean. A GitHub workflow
+(`.github/workflows/build.yml`) also builds the program, vets it, runs the
+tests and lints it on every push and pull request.
 
 Dependencies come from their upstream repositories only: the Qt bindings are
 `github.com/mappu/miqt`, and `go.mod` has no `replace` directives or local
@@ -166,6 +178,7 @@ tab (macOS > Run workflow). `make macos` runs the same script on a Mac.
 - `internal/chart` does the arithmetic of the graphs: scales, labels, where
   each point goes, and how a legend is laid out.
 - `internal/settings` loads and saves the settings, and gives colours.
+- `internal/desktop` writes the Linux desktop entry and its icon.
 - `internal/appicon` draws the icon, a prism: a triangle divided into Solarized red, blue and green thirds.
 - `internal/ui` is the window, the graphs and legends it paints, the
   settings dialog and the about box.

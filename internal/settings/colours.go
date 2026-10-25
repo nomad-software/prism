@@ -291,6 +291,6 @@ func hsv(h, s, v float64) (r, g, b uint8) {
 	default:
 		rf, bf = c, x
 	}
-	byte := func(f float64) uint8 { return uint8(math.Round((f + m) * 255)) }
-	return byte(rf), byte(gf), byte(bf)
+	scale := func(f float64) uint8 { return uint8(math.Round((f + m) * 255)) }
+	return scale(rf), scale(gf), scale(bf)
 }

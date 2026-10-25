@@ -865,3 +865,122 @@ func TestSettingsKeepUnlistedCores(t *testing.T) {
 		t.Errorf("Cores = %q, want %q", got.Colours.Cores, want)
 	}
 }
+
+func TestCPUCoresChange(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	tw.source.set(func(f *fakeSource) {
+		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 10, Idle: 10}, Cores: []stats.CPUTimes{{Busy: 10, Idle: 10}}}
+	})
+	mainthread.Wait(tw.sampleCPU)
+
+	// A processor brought online is drawn across the graph at 0 from its
+	// first reading, as those there from the start were.
+	tw.source.set(func(f *fakeSource) {
+		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 30, Idle: 20}, Cores: []stats.CPUTimes{{Busy: 20, Idle: 20}, {Busy: 10, Idle: 0}}}
+	})
+	tw.advance(2 * time.Second)
+	mainthread.Wait(func() {
+		tw.sampleCPU()
+		if len(tw.cpu.cores) != 2 {
+			t.Fatalf("%d cores, want 2", len(tw.cpu.cores))
+		}
+		p := tw.cpu.cores[1].Points()
+		if len(p) != 2 || p[0].V != 0 || p[1].V != 0 || tw.clock.Sub(p[0].T) != time.Minute {
+			t.Errorf("the new core is not a line of 0 across the graph: %+v", p)
+		}
+		if got := tw.cpu.legend.entries[1].value; got != "0.0%" {
+			t.Errorf("CPU2 = %q, want 0.0%%", got)
+		}
+	})
+
+	// One no longer read is idle, and stays listed.
+	tw.source.set(func(f *fakeSource) {
+		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 40, Idle: 30}, Cores: []stats.CPUTimes{{Busy: 30, Idle: 30}}}
+	})
+	tw.advance(2 * time.Second)
+	mainthread.Wait(func() {
+		tw.sampleCPU()
+		if len(tw.cpu.legend.entries) != 2 {
+			t.Fatalf("legend = %+v, want both cores", tw.cpu.legend.entries)
+		}
+		if p, _ := tw.cpu.cores[1].Last(); p.V != 0 || !p.T.Equal(tw.clock) {
+			t.Errorf("the core taken offline is at %+v, want 0 now", p)
+		}
+		if got := tw.cpu.legend.entries[0].value; got != "50.0%" {
+			t.Errorf("CPU1 = %q, want 50.0%%", got)
+		}
+	})
+}
+
+func TestSaveSettingsMaximised(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) { s.Width, s.Height = 500, 400 })
+	maximised := false
+	mainthread.Wait(func() {
+		tw.Resize(500, 400)
+		tw.ShowMaximized()
+		maximised = tw.IsMaximized()
+		tw.saveSettings()
+	})
+	if !maximised {
+		t.Skip("the platform does not maximise windows")
+	}
+	// Maximised, the size kept is the one it is restored to, not the size
+	// of the screen.
+	s := settings.Load(tw.path)
+	if !s.Maximized || s.Width != 500 || s.Height != 400 {
+		t.Errorf("saved maximised %v at %dx%d, want maximised at 500x400", s.Maximized, s.Width, s.Height)
+	}
+}
+
+func TestSmallFont(t *testing.T) {
+	mainthread.Wait(func() {
+		w := qt.NewQWidget2()
+		defer w.Delete()
+		for size, want := range map[float64]float64{8: 7, 12: 9, 20: 15} {
+			f := qt.NewQFont()
+			f.SetPointSizeF(size)
+			w.SetFont(f)
+			f.Delete()
+			small := smallFont(w)
+			if got := small.PointSizeF(); got != want {
+				t.Errorf("smallFont of %vpt = %vpt, want %vpt", size, got, want)
+			}
+			small.Delete()
+		}
+	})
+}
+
+// labels returns every label under the object, however deep.
+func labels(o *qt.QObject) []*qt.QLabel {
+	var found []*qt.QLabel
+	for _, child := range o.Children() {
+		if child.Inherits("QLabel") {
+			found = append(found, qt.UnsafeNewQLabel(child.UnsafePointer()))
+		}
+		found = append(found, labels(child)...)
+	}
+	return found
+}
+
+func TestSettingsIntervalNote(t *testing.T) {
+	// The note on the intervals says what range the boxes take.
+	mainthread.Wait(func() {
+		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, func(settings.Settings) {})
+		defer d.Reject()
+		found := false
+		for _, label := range labels(d.QObject) {
+			if strings.HasPrefix(label.Text(), "How often each is read") {
+				found = true
+				if !strings.Contains(label.Text(), "a tenth of a second to an hour") {
+					t.Errorf("note = %q", label.Text())
+				}
+			}
+		}
+		if !found {
+			t.Error("there is no note on the intervals")
+		}
+		if d.cpuInterval.Minimum() != settings.MinInterval || d.cpuInterval.Maximum() != settings.MaxInterval {
+			t.Error("the boxes do not take the range of the settings")
+		}
+	})
+}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -133,18 +134,18 @@ func TestNewWindow(t *testing.T) {
 				t.Errorf("%s timer runs before Start", name)
 			}
 		}
-		menus := tw.MenuBar().Actions()
-		if len(menus) != 1 || menus[0].Text() != "&File" {
-			t.Fatalf("menus = %d", len(menus))
+		// There is no menu bar, but a button of the main menu.
+		if tw.MenuWidget() != nil {
+			t.Error("the window has a menu bar")
 		}
 		var items []string
-		for _, a := range tw.file.Actions() {
+		for _, a := range tw.menu.Actions() {
 			if !a.IsSeparator() {
 				items = append(items, a.Text())
 			}
 		}
-		if len(items) != 2 || items[0] != "&Settings…" || items[1] != "&Quit" {
-			t.Errorf("File menu = %q", items)
+		if !slices.Equal(items, []string{"&Settings…", "&About Prism", "&Quit"}) {
+			t.Errorf("main menu = %q", items)
 		}
 		if !tw.StatusBar().IsSizeGripEnabled() {
 			t.Error("the status bar has no handle to drag")
@@ -187,11 +188,112 @@ func TestStart(t *testing.T) {
 	})
 }
 
+// menuAction returns the action of the main menu with the text.
+func menuAction(t *testing.T, tw *testWindow, text string) *qt.QAction {
+	t.Helper()
+	for _, a := range tw.menu.Actions() {
+		if a.Text() == text {
+			return a
+		}
+	}
+	t.Fatalf("the main menu has no %s", text)
+	return nil
+}
+
+func TestMenuButton(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	mainthread.Wait(func() {
+		tw.Resize(900, 700)
+		tw.Show()
+		defer tw.Hide()
+		b := tw.menuButton
+		if !b.IsVisible() {
+			t.Fatal("the menu button is not shown")
+		}
+		// It is at the right of the CPU heading, in line with the right of
+		// the graph.
+		origin := qt.NewQPoint()
+		defer origin.Delete()
+		at := b.MapTo2(tw.cpu.QWidget, origin)
+		defer runtime.KeepAlive(at)
+		if at.Y() != 0 {
+			t.Errorf("the menu button is %d below the top of the CPU section", at.Y())
+		}
+		if right, graph := at.X()+b.Width(), tw.cpu.graph.X()+tw.cpu.graph.Width(); right != graph {
+			t.Errorf("the menu button ends at %d, and the graph at %d", right, graph)
+		}
+		// Clicking it shows the menu, below it.
+		b.Click()
+		if !tw.menu.IsVisible() {
+			t.Fatal("clicking the menu button does not show the menu")
+		}
+		bottom := qt.NewQPoint2(0, b.Height())
+		defer bottom.Delete()
+		pos := b.MapToGlobalWithQPoint(bottom)
+		defer runtime.KeepAlive(pos)
+		if tw.menu.Y() < pos.Y() {
+			t.Errorf("the menu is at %d, above the bottom of its button at %d", tw.menu.Y(), pos.Y())
+		}
+		tw.menu.Hide()
+	})
+}
+
+func TestMenuShortcuts(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	mainthread.Wait(func() {
+		// The actions with shortcuts are the window's, so that their
+		// shortcuts work while the menu is hidden.
+		for _, text := range []string{"&Settings…", "&Quit"} {
+			a := menuAction(t, tw, text)
+			if !slices.ContainsFunc(tw.Actions(), func(b *qt.QAction) bool { return b.UnsafePointer() == a.UnsafePointer() }) {
+				t.Errorf("%s is not an action of the window", text)
+			}
+		}
+	})
+}
+
+func TestAboutAction(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	mainthread.Wait(func() {
+		menuAction(t, tw, "&About Prism").Trigger()
+		var about *qt.QWidget
+		for _, w := range qt.QApplication_TopLevelWidgets() {
+			if w.WindowTitle() == "About Prism" && w.IsVisible() {
+				about = w
+			}
+		}
+		if about == nil {
+			t.Fatal("the about box is not shown")
+		}
+		about.Close()
+	})
+}
+
+func TestAbout(t *testing.T) {
+	mainthread.Wait(func() {
+		d := newAboutDialog(nil)
+		defer d.DeleteLater()
+		licences := licenceText()
+		for _, want := range []string{qt.QLibraryInfo_Version().ToString(), "LGPLv3", "miqt", "Solarized"} {
+			if !strings.Contains(licences, want) {
+				t.Errorf("the licences do not mention %s", want)
+			}
+		}
+		if !strings.Contains(aboutText(), "GNU General Public License") {
+			t.Error("the about box does not give the program's licence")
+		}
+		d.Layout().Activate()
+		if need := d.Layout().HeightForWidth(d.Width()); d.Height() < need {
+			t.Errorf("the about box is %d high, and needs %d", d.Height(), need)
+		}
+	})
+}
+
 func TestQuit(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
 		var quit *qt.QAction
-		for _, a := range tw.file.Actions() {
+		for _, a := range tw.menu.Actions() {
 			if a.Text() == "&Quit" {
 				quit = a
 			}
@@ -674,7 +776,7 @@ func TestSettingsAction(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
 		var action *qt.QAction
-		for _, a := range tw.file.Actions() {
+		for _, a := range tw.menu.Actions() {
 			if a.Text() == "&Settings…" {
 				action = a
 			}

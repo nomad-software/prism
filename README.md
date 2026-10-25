@@ -86,6 +86,16 @@ The settings, and the size of the window, are kept in
 programs, as ApeMail's are: `~/.config` on Linux (or `$XDG_CONFIG_HOME`), and
 `~/Library/Application Support` on macOS.
 
+## One copy at a time
+
+Only one copy of Prism runs for each user. Starting it again, as from the
+desktop's menu, brings the window of the copy that runs to the front, raised
+and focused (under Wayland too, through the desktop's activation token), and
+the new copy leaves. The copy that runs holds a lock on `prism.lock`, which
+the system lets go of if it dies, and listens on `prism.sock` beside it, in
+`$XDG_RUNTIME_DIR`, or else in a folder of the user's own in the temporary
+folder.
+
 ## Desktop entry
 
 On Linux, every time it starts, Prism adds itself to the desktop's
@@ -178,6 +188,7 @@ tab (macOS > Run workflow). `make macos` runs the same script on a Mac.
 - `internal/chart` does the arithmetic of the graphs: scales, labels, where
   each point goes, and how a legend is laid out.
 - `internal/settings` loads and saves the settings, and gives colours.
+- `internal/instance` keeps to one copy running, and hands over to it.
 - `internal/desktop` writes the Linux desktop entry and its icon.
 - `internal/appicon` draws the icon, a prism: a triangle divided into Solarized red, blue and green thirds.
 - `internal/ui` is the window, the graphs and legends it paints, the

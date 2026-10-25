@@ -984,3 +984,29 @@ func TestSettingsIntervalNote(t *testing.T) {
 		}
 	})
 }
+
+func TestActivate(t *testing.T) {
+	t.Setenv("XDG_ACTIVATION_TOKEN", "")
+	tw := newTestWindow(t, nil)
+	mainthread.Wait(func() {
+		tw.SetWindowState(qt.WindowMaximized | qt.WindowMinimized)
+		tw.Show()
+		tw.Activate("token-1")
+		if tw.IsMinimized() || !tw.IsMaximized() || !tw.IsVisible() {
+			t.Errorf("minimised: state = %v, visible %v", tw.WindowState(), tw.IsVisible())
+		}
+		if got := os.Getenv("XDG_ACTIVATION_TOKEN"); got != "token-1" {
+			t.Errorf("token = %q", got)
+		}
+
+		tw.Hide()
+		tw.Activate("")
+		if !tw.IsVisible() {
+			t.Error("hidden: not shown")
+		}
+		// No token leaves the one there is.
+		if got := os.Getenv("XDG_ACTIVATION_TOKEN"); got != "token-1" {
+			t.Errorf("token = %q after none", got)
+		}
+	})
+}

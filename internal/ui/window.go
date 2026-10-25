@@ -147,6 +147,20 @@ func (w *Window) Start() {
 	}
 }
 
+// Activate shows the window, raised and given the focus, as when the program is
+// started again while it runs. token is the desktop's leave to take the focus
+// under Wayland, which is refused without it; Qt reads it from the
+// environment when it asks for the focus, and then takes it out.
+func (w *Window) Activate(token string) {
+	if token != "" {
+		os.Setenv("XDG_ACTIVATION_TOKEN", token)
+	}
+	w.SetWindowState(w.WindowState() &^ qt.WindowMinimized)
+	w.Show()
+	w.Raise()
+	w.ActivateWindow()
+}
+
 // newTimer returns a timer, not yet started, that calls read at the interval,
 // in seconds.
 func (w *Window) newTimer(interval float64, read func()) *qt.QTimer {

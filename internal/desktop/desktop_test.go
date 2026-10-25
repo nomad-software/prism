@@ -182,6 +182,21 @@ func TestWriteFileErrors(t *testing.T) {
 	}
 }
 
+func TestWriteFileUnwritable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write into any folder")
+	}
+	// A folder that cannot be written to has no room for the temporary file.
+	dir := filepath.Join(t.TempDir(), "locked")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if err := writeFile(filepath.Join(dir, "x"), []byte("x")); err == nil {
+		t.Error("writeFile into a folder that cannot be written to succeeded")
+	}
+}
+
 func TestWriteErrors(t *testing.T) {
 	// Data under a file has neither folder, and both are said to fail.
 	file := filepath.Join(t.TempDir(), "file")

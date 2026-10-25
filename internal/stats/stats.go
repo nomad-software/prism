@@ -70,6 +70,18 @@ type Process struct {
 	Kernel bool
 }
 
+// ProcessKey tells processes apart, as one that has ended does from one given
+// its PID later.
+type ProcessKey struct {
+	PID   int
+	Start uint64
+}
+
+// Key returns what tells the process apart from any other.
+func (p Process) Key() ProcessKey {
+	return ProcessKey{p.PID, p.Start}
+}
+
 // nobodyUIDs are the user IDs of nobody: 65534 on Linux, and -2 on macOS,
 // which is unsigned there.
 var nobodyUIDs = []int{65534, 1<<32 - 2}

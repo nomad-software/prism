@@ -1,11 +1,35 @@
 # Prism
 
 Graphs of the use of the processors, memory and swap, and network adapters,
-and a table of the processes that are running.
+and a tree of the processes that are running.
 It is written in Go with Qt 6, through the
 [miqt](https://github.com/mappu/miqt) bindings, and runs on Linux and macOS.
 
 ![Prism](docs/screenshot.png)
+
+## Why use it
+
+- **Everything at a glance, in one small window.** Every processor, memory
+  and swap, and every network adapter, each drawn as a line over the last
+  minute, with the numbers beside them; and a tab of the processes, a
+  shortcut away (Ctrl+2), to find what is busy and stop it.
+- **It answers "what is using my machine?"** Sort the processes by how busy
+  they are or how much memory they have, see them as a tree to find what
+  started what, fold away what does not matter, and send the one at fault a
+  signal: SIGKILL, SIGTERM, or another, to end it, stop it or go on.
+- **It asks for nothing.** No root, no daemon, no service, no account and
+  nothing sent anywhere: it only reads what the kernel already says, in
+  `/proc` and `/sys` on Linux and through the system's own calls on macOS.
+- **It is light.** One program, one window, and one copy running at a time;
+  each statistic is read at an interval of its own, from a tenth of a second
+  to an hour, so it costs as little as wanted.
+- **It looks right on the desktop.** A native Qt program that follows the
+  desktop's light or dark theme, or one of its own, with colours that read
+  well on either, every one of which can be chosen. It remembers its size,
+  its settings and how the processes were last shown.
+- **It is easy to have.** One AppImage file that runs on most Linux
+  systems without installing anything, or an app for Macs with Apple
+  Silicon; free software, under the GPLv3.
 
 ## What it shows
 
@@ -34,8 +58,9 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
   it. Below the table, at the left, choose to see the processes of people
   (user processes, the default), the system's (those of root, of services
   and of the kernel) or all of them, and to see them as a list or as a
-  tree, each process under the one that started it; these choices are kept
-  for next time too. Choose a
+  tree, each process under the one that started it, whose branches fold and
+  open with the arrows beside the names and stay as they are left; these
+  choices are kept for next time too. Choose a
   process, then a signal (SIGKILL unless another is chosen), and **Send
   Signal** sends it; the status bar says whether it was sent. A process that
   has ended in the meantime is not sent it, even if its PID has been given

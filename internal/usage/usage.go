@@ -103,16 +103,9 @@ type Process struct {
 	Measured bool
 }
 
-// processKey tells processes apart, as one that ended does from one that is
-// given its PID later.
-type processKey struct {
-	pid   int
-	start uint64
-}
-
 // Processes works out how busy processes are from one reading to the next.
 type Processes struct {
-	last map[processKey]time.Duration
+	last map[stats.ProcessKey]time.Duration
 	at   time.Time
 }
 
@@ -121,10 +114,10 @@ type Processes struct {
 // reading, as none is in the first, is not measured until the next.
 func (p *Processes) Update(at time.Time, now []stats.Process) []Process {
 	seconds := at.Sub(p.at).Seconds()
-	last := make(map[processKey]time.Duration, len(now))
+	last := make(map[stats.ProcessKey]time.Duration, len(now))
 	processes := make([]Process, len(now))
 	for i, s := range now {
-		key := processKey{s.PID, s.Start}
+		key := s.Key()
 		processes[i] = Process{Process: s}
 		if s.Restricted {
 			continue

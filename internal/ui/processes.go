@@ -3,9 +3,11 @@ package ui
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	qt "github.com/mappu/miqt/qt6"
 
@@ -15,7 +17,7 @@ import (
 	"github.com/nomad-software/prism/internal/usage"
 )
 
-// The columns of the table of processes.
+// The columns of the processes.
 const (
 	colProcessPID = iota
 	colProcessName
@@ -24,11 +26,11 @@ const (
 	processColumns
 )
 
-// processHeadings are the headings of the columns of the table of processes.
+// processHeadings are the headings of the columns of the processes.
 var processHeadings = [processColumns]string{"PID", "Name", "CPU", "Memory"}
 
-// processSorts are the settings' names of the columns of the table of
-// processes, which they are sorted by.
+// processSorts are the settings' names of the columns of the processes, which
+// they are sorted by.
 var processSorts = [processColumns]string{
 	colProcessPID:    settings.SortPID,
 	colProcessName:   settings.SortName,
@@ -36,29 +38,37 @@ var processSorts = [processColumns]string{
 	colProcessMemory: settings.SortMemory,
 }
 
-// processShares are the shares of the width of the table of processes, beside
+// processShares are the shares of the width of the tree of processes, beside
 // the PID, each other column has: the name half, and the others a quarter.
 var processShares = [processColumns]int{colProcessName: 2, colProcessCPU: 1, colProcessMemory: 1}
 
 // columnPadding is the room either side of the PIDs, and sortArrowRoom that
-// of the arrow beside the heading the table is sorted by.
+// of the arrow beside the heading the tree is sorted by.
 const (
 	columnPadding = 24
 	sortArrowRoom = 20
 )
 
-// processes is the tab of the processes: a table of them, which can be sorted
-// by any column, shown as a list or a tree, of every process, those of people
-// or the system's, and what sends the one chosen a signal.
+// processes is the tab of the processes: a tree of them, which can be sorted
+// by any column, shown as a list or as a tree whose branches fold, of every
+// process, those of people or the system's, and what sends the one chosen a
+// signal.
 type processes struct {
 	section
 	usage usage.Processes
-	// list is every process read, and shown those the table lists, in its
-	// order, with how deep in the tree each is.
+	// list is every process read, and shown those the tree lists, in its
+	// order from the top, each before those it started, with how deep in the
+	// tree each is.
 	list   []usage.Process
 	shown  []usage.Process
 	depths []int
-	table  *qt.QTableWidget
+	tree   *qt.QTreeWidget
+	// rows are the indexes in shown of the processes of the items of the
+	// tree, by the items' addresses.
+	rows map[unsafe.Pointer]int
+	// folded are the processes whose branches are folded; the others are
+	// open, as each is at first.
+	folded map[stats.ProcessKey]bool
 	// filter chooses which processes are shown, and view whether as a list
 	// or a tree.
 	filter, view *qt.QComboBox
@@ -66,20 +76,20 @@ type processes struct {
 	// chosen to the process chosen.
 	signals *qt.QComboBox
 	send    *qt.QPushButton
-	// chosen is the process chosen in the table, which is kept chosen as
-	// the table is sorted and read again, while it runs.
+	// chosen is the process chosen in the tree, which is kept chosen as
+	// the tree is sorted and read again, while it runs.
 	chosen *stats.Process
-	// filling says that the table is being filled, while which what Qt
-	// says is chosen is not what the user chose.
+	// filling says that the tree is being filled, while which what Qt says
+	// is chosen, folded or open is not what the user chose.
 	filling bool
 }
 
-// makeProcesses makes the tab of the processes, listed by how busy they are,
-// the busiest first.
+// makeProcesses makes the tab of the processes, sorted, chosen and shown as
+// they last were.
 func (w *Window) makeProcesses() {
 	p := &w.processes
 	p.section = newSection("Processes")
-	// Which processes are shown, and how, are chosen below the table, at its
+	// Which processes are shown, and how, are chosen below the tree, at its
 	// left, and kept in the settings.
 	p.filter = qt.NewQComboBox2()
 	addItem(p.filter, "All", settings.ProcessesAll)
@@ -93,27 +103,28 @@ func (w *Window) makeProcesses() {
 	p.filter.OnCurrentIndexChanged(func(int) { w.processViewChanged() })
 	p.view.OnCurrentIndexChanged(func(int) { w.processViewChanged() })
 
-	p.table = qt.NewQTableWidget3(0, processColumns)
-	p.table.VerticalHeader().SetVisible(false)
-	p.table.SetSelectionBehavior(qt.QAbstractItemView__SelectRows)
-	p.table.SetSelectionMode(qt.QAbstractItemView__SingleSelection)
-	p.table.SetEditTriggers(qt.QAbstractItemView__NoEditTriggers)
-	p.table.SetShowGrid(false)
-	p.table.SetWordWrap(false)
-	header := p.table.HorizontalHeader()
+	p.folded = map[stats.ProcessKey]bool{}
+	p.tree = qt.NewQTreeWidget2()
+	p.tree.SetColumnCount(processColumns)
+	p.tree.SetSelectionMode(qt.QAbstractItemView__SingleSelection)
+	p.tree.SetUniformRowHeights(true)
+	p.tree.SetAllColumnsShowFocus(true)
+	// The branches are drawn beside the names, though the PIDs are first.
+	p.tree.SetTreePosition(colProcessName)
+	headings := p.tree.HeaderItem()
 	for col, heading := range processHeadings {
-		item := qt.NewQTableWidgetItem2(heading)
-		item.SetTextAlignment(int(processAlignment(col)))
+		headings.SetText(col, heading)
+		headings.SetTextAlignment(col, int(processAlignment(col)))
 		if col != colProcessName {
 			// A column of numbers is sorted from the largest when it is
 			// first chosen, and one of names from A.
 			order := qt.NewQVariant4(int(qt.DescendingOrder))
-			item.SetData(int(qt.InitialSortOrderRole), order)
+			headings.SetData(col, int(qt.InitialSortOrderRole), order)
 			order.Delete()
 		}
-		p.table.SetHorizontalHeaderItem(col, item)
 	}
-	// The columns share the width of the table, as fitColumns says, as it
+	header := p.tree.Header()
+	// The columns share the width of the tree, as fitColumns says, as it
 	// grows and shrinks. They are not sized to what they hold, as Qt
 	// would measure every row whenever any of them changed. The last has
 	// what is left, so that they always fill the width.
@@ -121,26 +132,29 @@ func (w *Window) makeProcesses() {
 		header.SetSectionResizeMode2(col, qt.QHeaderView__Fixed)
 	}
 	header.SetStretchLastSection(true)
-	p.table.OnResizeEvent(func(super func(*qt.QResizeEvent), event *qt.QResizeEvent) {
+	p.tree.OnResizeEvent(func(super func(*qt.QResizeEvent), event *qt.QResizeEvent) {
 		super(event)
 		p.fitColumns()
 	})
-	// The table is sorted here, not by Qt, so that the numbers are sorted
-	// as numbers and the process chosen stays chosen. It is sorted as the
-	// settings say, and how it is sorted by clicking a heading is saved.
+	// The tree is sorted here, not by Qt, so that the numbers are sorted
+	// as numbers, the process chosen stays chosen, and those each process
+	// started stay under it. It is sorted as the settings say, and how it
+	// is sorted by clicking a heading is saved.
 	header.SetSectionsClickable(true)
 	header.SetSortIndicatorShown(true)
 	w.applyProcessOrder()
 	header.OnSortIndicatorChanged(w.processOrderChanged)
-	p.table.OnItemSelectionChanged(w.chooseProcess)
-	p.layout.AddWidget2(p.table.QWidget, 1)
+	p.tree.OnItemSelectionChanged(w.chooseProcess)
+	p.tree.OnItemCollapsed(func(item *qt.QTreeWidgetItem) { p.fold(item, true) })
+	p.tree.OnItemExpanded(func(item *qt.QTreeWidgetItem) { p.fold(item, false) })
+	p.layout.AddWidget2(p.tree.QWidget, 1)
 
 	p.signals = qt.NewQComboBox2()
 	for _, s := range stats.Signals() {
 		p.signals.AddItem(fmt.Sprintf("%s (%d)", s.Name, s.Number))
 	}
 	p.send = qt.NewQPushButton3("Send Signal")
-	p.send.SetEnabled(false)
+	p.enableSend()
 	p.send.OnClicked(w.sendSignal)
 	row := qt.NewQHBoxLayout2()
 	row.AddWidget(qt.NewQLabel3("Processes").QWidget)
@@ -155,7 +169,7 @@ func (w *Window) makeProcesses() {
 	p.layout.AddLayout(row.QLayout)
 }
 
-// processAlignment returns how the column of the table of processes, and its
+// processAlignment returns how the column of the processes, and its
 // heading, are aligned: the PIDs and names to the left, and the use of the
 // processor and memory to the right.
 func processAlignment(col int) qt.AlignmentFlag {
@@ -165,18 +179,18 @@ func processAlignment(col int) qt.AlignmentFlag {
 	return qt.AlignRight | qt.AlignVCenter
 }
 
-// applyProcessOrder sorts the table of processes as the settings say, as it
-// was last sorted.
+// applyProcessOrder sorts the processes as the settings say, as they were
+// last sorted.
 func (w *Window) applyProcessOrder() {
 	col := max(slices.Index(processSorts[:], w.config.ProcessSort), 0)
 	order := qt.AscendingOrder
 	if w.config.ProcessOrder == settings.OrderDescending {
 		order = qt.DescendingOrder
 	}
-	w.processes.table.HorizontalHeader().SetSortIndicator(col, order)
+	w.processes.tree.Header().SetSortIndicator(col, order)
 }
 
-// processOrderChanged sorts the table of processes by the column, as its
+// processOrderChanged sorts the processes by the column, as its
 // heading was clicked, and saves how it is sorted in the settings.
 func (w *Window) processOrderChanged(col int, order qt.SortOrder) {
 	if col >= 0 && col < processColumns {
@@ -205,17 +219,16 @@ func (w *Window) processViewChanged() {
 
 // fitColumns makes the PIDs as wide as the largest of them, and gives each
 // other column its share of the rest of the width of the header, which is
-// that of the table less its scroll bar, when the table is resized or
-// filled. The PIDs are measured by how many digits the largest has, not by
+// that of the tree less its scroll bar, when the tree is resized or filled. The PIDs are measured by how many digits the largest has, not by
 // Qt, which would measure every row.
 func (p *processes) fitColumns() {
-	header := p.table.HorizontalHeader()
+	header := p.tree.Header()
 	largest := 0
 	for _, proc := range p.shown {
 		largest = max(largest, proc.PID)
 	}
 	digits := strings.Repeat("8", len(strconv.Itoa(largest)))
-	pid := max(p.table.FontMetrics().HorizontalAdvance(digits),
+	pid := max(p.tree.FontMetrics().HorizontalAdvance(digits),
 		header.FontMetrics().HorizontalAdvance(processHeadings[colProcessPID])+sortArrowRoom) + columnPadding
 	header.ResizeSection(colProcessPID, pid)
 	rest := max(header.Width()-pid, 0)
@@ -240,61 +253,103 @@ func (w *Window) sampleProcesses() {
 	w.showProcesses()
 }
 
-// showProcesses lists the processes the settings choose in the table, as a
-// list or a tree, sorted as its header says, with the one chosen still chosen
-// if it is still listed.
+// showProcesses lists the processes the settings choose in the tree, as a
+// list or a tree, sorted as its header says. The tree is made again each
+// time, with nothing drawn until it is done, and with the branches folded
+// that were, the process chosen still chosen if it is still listed, and
+// scrolled as it was.
 func (w *Window) showProcesses() {
 	p := &w.processes
 	p.filling = true
 	defer func() { p.filling = false }()
-	header := p.table.HorizontalHeader()
+	header := p.tree.Header()
 	p.shown = filterProcesses(p.list, w.config.ProcessFilter)
 	column, descending := header.SortIndicatorSection(), header.SortIndicatorOrder() == qt.DescendingOrder
-	if w.config.ProcessView == settings.ViewTree {
+	tree := w.config.ProcessView == settings.ViewTree
+	if tree {
 		p.shown, p.depths = treeOrder(p.shown, column, descending)
 	} else {
 		sortProcesses(p.shown, column, descending)
 		p.depths = make([]int, len(p.shown))
 	}
-	rows := p.table.RowCount()
-	p.table.SetRowCount(len(p.shown))
-	for row := rows; row < len(p.shown); row++ {
+
+	scroll := p.tree.VerticalScrollBar().Value()
+	p.tree.SetUpdatesEnabled(false)
+	defer p.tree.SetUpdatesEnabled(true)
+	p.tree.Clear()
+	p.tree.SetRootIsDecorated(tree)
+	p.tree.SetItemsExpandable(tree)
+	p.rows = make(map[unsafe.Pointer]int, len(p.shown))
+	items := make([]*qt.QTreeWidgetItem, len(p.shown))
+	// parents are the items the last item is under, from the top.
+	var parents []*qt.QTreeWidgetItem
+	var chosen *qt.QTreeWidgetItem
+	u := w.units()
+	for i, proc := range p.shown {
+		cells := processCells(proc, u)
+		item := qt.NewQTreeWidgetItem2(cells[:])
 		for col := range processColumns {
-			item := qt.NewQTableWidgetItem()
-			item.SetTextAlignment(int(processAlignment(col)))
-			p.table.SetItem(row, col, item)
+			item.SetTextAlignment(col, int(processAlignment(col)))
+		}
+		depth := min(p.depths[i], len(parents))
+		parents = parents[:depth]
+		if depth == 0 {
+			p.tree.AddTopLevelItem(item)
+		} else {
+			parents[depth-1].AddChild(item)
+		}
+		parents = append(parents, item)
+		items[i] = item
+		p.rows[item.UnsafePointer()] = i
+		if p.chosen != nil && proc.Key() == p.chosen.Key() {
+			chosen = item
 		}
 	}
-	u := w.units()
-	for row, proc := range p.shown {
-		cells := processCells(proc, u)
-		cells[colProcessName] = treeIndent(p.depths[row]) + cells[colProcessName]
-		for col, text := range cells {
-			if item := p.table.Item(row, col); item.Text() != text {
-				item.SetText(text)
+	if tree {
+		p.tree.ExpandAll()
+		running := make(map[stats.ProcessKey]bool, len(p.list))
+		for _, proc := range p.list {
+			running[proc.Key()] = true
+		}
+		// What is kept of processes that have ended is forgotten.
+		maps.DeleteFunc(p.folded, func(key stats.ProcessKey, _ bool) bool { return !running[key] })
+		for i, proc := range p.shown {
+			if p.folded[proc.Key()] {
+				items[i].SetExpanded(false)
 			}
 		}
 	}
-
-	chosen := -1
-	if p.chosen != nil {
-		chosen = slices.IndexFunc(p.shown, func(proc usage.Process) bool {
-			return proc.PID == p.chosen.PID && proc.Start == p.chosen.Start
-		})
-	}
-	if chosen < 0 {
-		p.table.ClearSelection()
-		p.chosen = nil
+	if chosen != nil {
+		p.tree.SetCurrentItem(chosen)
 	} else {
-		p.table.SelectRow(chosen)
+		p.chosen = nil
 	}
-	p.send.SetEnabled(p.chosen != nil && p.signals.Count() > 0)
+	p.tree.VerticalScrollBar().SetValue(scroll)
+	p.enableSend()
 	// The rows can have brought a scroll bar, which the header is narrowed
 	// by, or a larger PID.
 	p.fitColumns()
 }
 
-// processCells writes what the table lists of the process: its name, PID,
+// fold keeps whether the branch of the process of the item is folded, as it
+// was folded or opened.
+func (p *processes) fold(item *qt.QTreeWidgetItem, folded bool) {
+	if p.filling {
+		return
+	}
+	i, ok := p.rows[item.UnsafePointer()]
+	if !ok {
+		return
+	}
+	key := p.shown[i].Key()
+	if folded {
+		p.folded[key] = true
+	} else {
+		delete(p.folded, key)
+	}
+}
+
+// processCells writes what the tree lists of the process: its name, PID,
 // how busy it was ("—" while it is not known), and its memory, which is "—"
 // for a process the system does not let it be read of, and for a thread of
 // the kernel, which has none of its own.
@@ -401,33 +456,26 @@ func treeOrder(list []usage.Process, column int, descending bool) ([]usage.Proce
 	return ordered, depths
 }
 
-// treeIndent returns what is written before the name of a process as deep in
-// the tree as the depth: nothing at the top, and below it a space as wide as
-// the letter M for each level above its parent's, and a corner.
-func treeIndent(depth int) string {
-	if depth == 0 {
-		return ""
-	}
-	return strings.Repeat("\u2003", depth-1) + "└ "
-}
-
-// chooseProcess keeps which process is chosen in the table, and lets it be
+// chooseProcess keeps which process is chosen in the tree, and lets it be
 // sent a signal.
 func (w *Window) chooseProcess() {
 	p := &w.processes
 	if p.filling {
 		return
 	}
-	row := -1
-	if rows := p.table.SelectionModel().SelectedRows(); len(rows) > 0 {
-		row = rows[0].Row()
+	p.chosen = nil
+	if items := p.tree.SelectedItems(); len(items) > 0 {
+		if i, ok := p.rows[items[0].UnsafePointer()]; ok {
+			proc := p.shown[i].Process
+			p.chosen = &proc
+		}
 	}
-	if row < 0 || row >= len(p.shown) {
-		p.chosen = nil
-	} else {
-		proc := p.shown[row].Process
-		p.chosen = &proc
-	}
+	p.enableSend()
+}
+
+// enableSend lets a signal be sent while a process is chosen, and there are
+// signals to send.
+func (p *processes) enableSend() {
 	p.send.SetEnabled(p.chosen != nil && p.signals.Count() > 0)
 }
 

@@ -93,6 +93,18 @@ func TestSaveFails(t *testing.T) {
 	if err := Defaults().Save(filepath.Join(t.TempDir(), "missing", "settings.json")); err == nil {
 		t.Error("Save into a missing folder succeeded")
 	}
+	// A folder in the way cannot be replaced, and nothing is left beside it.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.MkdirAll(filepath.Join(path, "inside"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := Defaults().Save(path); err == nil {
+		t.Error("Save over a folder succeeded")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("files left behind: %v", entries)
+	}
 }
 
 func TestLoadNormalises(t *testing.T) {

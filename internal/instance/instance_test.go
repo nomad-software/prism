@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -238,4 +239,41 @@ func holdLock(t *testing.T, dir string) *os.File {
 		t.Fatal(err)
 	}
 	return f
+}
+
+func TestClaimErrors(t *testing.T) {
+	// There is no lock in a folder that is not there.
+	if _, err := Claim(filepath.Join(tempDir(t), "missing"), ""); err == nil || errors.Is(err, ErrRunning) {
+		t.Errorf("Claim of a missing folder = %v", err)
+	}
+
+	// A folder where the socket goes cannot be taken away, and the lock is
+	// let go, so that another can claim it.
+	dir := tempDir(t)
+	if err := os.MkdirAll(filepath.Join(dir, socketName, "inside"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Claim(dir, ""); err == nil {
+		t.Error("Claim with a folder in place of the socket succeeded")
+	}
+	holdLock(t, dir).Close()
+
+	// A socket's path can only be so long.
+	long := filepath.Join(tempDir(t), strings.Repeat("d", 120))
+	if err := os.Mkdir(long, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Claim(long, ""); err == nil {
+		t.Error("Claim with a socket path too long succeeded")
+	}
+	holdLock(t, long).Close()
+}
+
+func TestDirMissingTemp(t *testing.T) {
+	// A folder cannot be made in a temporary folder that is not there.
+	t.Setenv("XDG_RUNTIME_DIR", "")
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	if _, err := Dir(); err == nil {
+		t.Error("Dir in a missing temporary folder succeeded")
+	}
 }

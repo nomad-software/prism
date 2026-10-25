@@ -36,14 +36,11 @@ func (w *Window) makeTabs(resources, processes *qt.QWidget) {
 	w.tabs = qt.NewQTabWidget2()
 	// The tabs are as the style draws them, with more room in them.
 	bar := qt.NewQTabBar2()
-	sizes := make([]*qt.QSize, tabCount)
+	// What is returned is copied once it is returned, so the size of each
+	// tab is kept here, where the collector cannot free it before then.
+	sizes := map[int]*qt.QSize{}
 	bar.OnTabSizeHint(func(super func(int) *qt.QSize, index int) *qt.QSize {
 		size := super(index)
-		if index < 0 || index >= len(sizes) {
-			return size
-		}
-		// What is returned is copied once this returns, so it is kept here,
-		// where the collector cannot free it before then.
 		if sizes[index] == nil {
 			sizes[index] = qt.NewQSize()
 		}

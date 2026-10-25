@@ -22,20 +22,60 @@ func showAll(s *settings.Settings) {
 	s.ProcessFilter = settings.ProcessesAll
 }
 
-// column returns the texts of the column of the table of processes, from the
-// top.
+// items returns the items of the tree of processes, each before those under
+// it, from the top, folded or not, with how deep each is.
+func items(tw *testWindow) ([]*qt.QTreeWidgetItem, []int) {
+	var all []*qt.QTreeWidgetItem
+	var depths []int
+	var walk func(item *qt.QTreeWidgetItem, depth int)
+	walk = func(item *qt.QTreeWidgetItem, depth int) {
+		all = append(all, item)
+		depths = append(depths, depth)
+		for i := range item.ChildCount() {
+			walk(item.Child(i), depth+1)
+		}
+	}
+	tree := tw.processes.tree
+	for i := range tree.TopLevelItemCount() {
+		walk(tree.TopLevelItem(i), 0)
+	}
+	return all, depths
+}
+
+// column returns the texts of the column of the tree of processes, each
+// before those under it, from the top.
 func column(tw *testWindow, col int) []string {
 	var texts []string
-	for row := range tw.processes.table.RowCount() {
-		texts = append(texts, tw.processes.table.Item(row, col).Text())
+	all, _ := items(tw)
+	for _, item := range all {
+		texts = append(texts, item.Text(col))
 	}
 	return texts
 }
 
-// chooseRow chooses the row of the table of processes, as a click on it
-// would.
+// depths returns how deep each process of the tree is, from the top.
+func depths(tw *testWindow) []int {
+	_, d := items(tw)
+	return d
+}
+
+// chooseRow chooses the process of the row of the tree, counting each before
+// those under it, as a click on it would.
 func chooseRow(tw *testWindow, row int) {
-	tw.processes.table.SelectRow(row)
+	all, _ := items(tw)
+	tw.processes.tree.SetCurrentItem(all[row])
+}
+
+// chosenRow returns the row of the process chosen in the tree, or -1.
+func chosenRow(tw *testWindow) int {
+	selected := tw.processes.tree.SelectedItems()
+	if len(selected) == 0 {
+		return -1
+	}
+	all, _ := items(tw)
+	return slices.IndexFunc(all, func(item *qt.QTreeWidgetItem) bool {
+		return item.UnsafePointer() == selected[0].UnsafePointer()
+	})
 }
 
 func TestTabs(t *testing.T) {
@@ -53,7 +93,7 @@ func TestTabs(t *testing.T) {
 		}
 		var headings []string
 		for col := range processColumns {
-			headings = append(headings, tw.processes.table.HorizontalHeaderItem(col).Text())
+			headings = append(headings, tw.processes.tree.HeaderItem().Text(col))
 		}
 		if !slices.Equal(headings, []string{"PID", "Name", "CPU", "Memory"}) {
 			t.Errorf("headings = %q", headings)
@@ -116,10 +156,10 @@ func TestSampleProcesses(t *testing.T) {
 			colProcessPID: qt.AlignLeft, colProcessName: qt.AlignLeft,
 			colProcessCPU: qt.AlignRight, colProcessMemory: qt.AlignRight,
 		} {
-			if a := tw.processes.table.Item(0, col).TextAlignment(); a&int(want) == 0 {
+			if a := tw.processes.tree.TopLevelItem(0).TextAlignment(col); a&int(want) == 0 {
 				t.Errorf("column %d is aligned %#x", col, a)
 			}
-			if a := tw.processes.table.HorizontalHeaderItem(col).TextAlignment(); a&int(want) == 0 {
+			if a := tw.processes.tree.HeaderItem().TextAlignment(col); a&int(want) == 0 {
 				t.Errorf("heading %d is aligned %#x", col, a)
 			}
 		}
@@ -148,7 +188,7 @@ func TestSortProcessesByHeader(t *testing.T) {
 	})
 	mainthread.Wait(func() {
 		tw.sampleProcesses()
-		header := tw.processes.table.HorizontalHeader()
+		header := tw.processes.tree.Header()
 		for _, c := range []struct {
 			col   int
 			order qt.SortOrder
@@ -212,8 +252,8 @@ func TestChosenProcessKept(t *testing.T) {
 	})
 	mainthread.Wait(func() {
 		tw.sampleProcesses()
-		if tw.processes.chosen == nil || tw.processes.chosen.PID != 3 || tw.processes.table.CurrentRow() != 0 {
-			t.Errorf("chosen = %+v, row %d", tw.processes.chosen, tw.processes.table.CurrentRow())
+		if tw.processes.chosen == nil || tw.processes.chosen.PID != 3 || chosenRow(tw) != 0 {
+			t.Errorf("chosen = %+v, row %d", tw.processes.chosen, chosenRow(tw))
 		}
 	})
 	// A process given its PID once it has ended is another.
@@ -223,7 +263,7 @@ func TestChosenProcessKept(t *testing.T) {
 	})
 	mainthread.Wait(func() {
 		tw.sampleProcesses()
-		if tw.processes.chosen != nil || tw.processes.send.IsEnabled() || tw.processes.table.SelectionModel().HasSelection() {
+		if tw.processes.chosen != nil || tw.processes.send.IsEnabled() || len(tw.processes.tree.SelectedItems()) > 0 {
 			t.Errorf("chosen = %+v after it ended", tw.processes.chosen)
 		}
 	})
@@ -266,7 +306,7 @@ func TestSortProcessesByClick(t *testing.T) {
 	mainthread.Wait(func() {
 		tw.tabs.SetCurrentIndex(1)
 		tw.sampleProcesses()
-		header := tw.processes.table.HorizontalHeader()
+		header := tw.processes.tree.Header()
 		click := func(col int) {
 			x := float64(header.SectionViewportPosition(col) + header.SectionSize(col)/2)
 			pos := qt.NewQPointF3(x, float64(header.Height()/2))
@@ -307,11 +347,11 @@ func TestProcessColumnWidths(t *testing.T) {
 	mainthread.Wait(func() {
 		tw.tabs.SetCurrentIndex(1)
 		tw.sampleProcesses()
-		header := tw.processes.table.HorizontalHeader()
-		if header.LogicalIndexAt(1) != colProcessPID || tw.processes.table.HorizontalHeaderItem(0).Text() != "PID" {
+		header := tw.processes.tree.Header()
+		if header.LogicalIndexAt(1) != colProcessPID || tw.processes.tree.HeaderItem().Text(0) != "PID" {
 			t.Fatal("the PIDs are not first")
 		}
-		fm := tw.processes.table.FontMetrics()
+		fm := tw.processes.tree.FontMetrics()
 		pid := header.SectionSize(colProcessPID)
 		if pid < fm.HorizontalAdvance("4194304") || pid > fm.HorizontalAdvance("4194304")+2*columnPadding {
 			t.Errorf("the PIDs are %d wide, not sized to 4194304", pid)
@@ -337,9 +377,9 @@ func TestProcessColumnWidths(t *testing.T) {
 	// The PIDs narrow when the largest has gone.
 	tw.source.set(func(f *fakeSource) { f.procs = []stats.Process{{PID: 1, Name: "init"}} })
 	mainthread.Wait(func() {
-		before := tw.processes.table.HorizontalHeader().SectionSize(colProcessPID)
+		before := tw.processes.tree.Header().SectionSize(colProcessPID)
 		tw.sampleProcesses()
-		if after := tw.processes.table.HorizontalHeader().SectionSize(colProcessPID); after >= before {
+		if after := tw.processes.tree.Header().SectionSize(colProcessPID); after >= before {
 			t.Errorf("the PIDs are %d wide, were %d, with only PID 1", after, before)
 		}
 	})
@@ -357,7 +397,7 @@ func TestProcessOrderSetting(t *testing.T) {
 	})
 	mainthread.Wait(func() {
 		tw.sampleProcesses()
-		header := tw.processes.table.HorizontalHeader()
+		header := tw.processes.tree.Header()
 		if header.SortIndicatorSection() != colProcessName || header.SortIndicatorOrder() != qt.DescendingOrder {
 			t.Error("the table is not sorted as the settings say")
 		}
@@ -478,15 +518,21 @@ func TestProcessFilterAndView(t *testing.T) {
 		// of the same parent in the order chosen.
 		selectData(p.filter, settings.ProcessesAll)
 		selectData(p.view, settings.ViewTree)
-		tw.processes.table.HorizontalHeader().SetSortIndicator(colProcessMemory, qt.DescendingOrder)
-		want := []string{"init", "└ sshd", "└ login", "\u2003└ bash", "\u2003\u2003└ vim", "kthreadd"}
+		tw.processes.tree.Header().SetSortIndicator(colProcessMemory, qt.DescendingOrder)
+		want := []string{"init", "sshd", "login", "bash", "vim", "kthreadd"}
 		if got := column(tw, colProcessName); !slices.Equal(got, want) {
 			t.Errorf("tree = %q, want %q", got, want)
 		}
+		if got := depths(tw); !slices.Equal(got, []int{0, 1, 1, 2, 3, 0}) {
+			t.Errorf("tree depths = %v", got)
+		}
+		if !p.tree.RootIsDecorated() {
+			t.Error("the tree has no branches to fold")
+		}
 		// One whose parent is not shown is at the top.
 		selectData(p.filter, settings.ProcessesUser)
-		if got := column(tw, colProcessName); !slices.Equal(got, []string{"login", "└ bash", "\u2003└ vim"}) {
-			t.Errorf("user tree = %q", got)
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"login", "bash", "vim"}) || !slices.Equal(depths(tw), []int{0, 1, 2}) {
+			t.Errorf("user tree = %q, %v", got, depths(tw))
 		}
 		// The process chosen is the one in its row.
 		chooseRow(tw, 2)
@@ -516,7 +562,7 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 		qt.QCoreApplication_ProcessEvents()
 		p := &tw.processes
 		filter, view := p.filter.Geometry(), p.view.Geometry()
-		table := p.table.Geometry()
+		table := p.tree.Geometry()
 		var items []string
 		for i := range p.filter.Count() {
 			items = append(items, p.filter.ItemText(i))
@@ -581,4 +627,104 @@ func TestTabPadding(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestProcessFolding checks that the branches of the tree fold and open, and
+// stay as they were left as the processes are read again and sorted, and
+// that a list has no branches.
+func TestProcessFolding(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessView = settings.ViewTree
+		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
+	})
+	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
+	mainthread.Wait(func() {
+		p := &tw.processes
+		tw.sampleProcesses()
+		find := func(name string) *qt.QTreeWidgetItem {
+			all, _ := items(tw)
+			for _, item := range all {
+				if item.Text(colProcessName) == name {
+					return item
+				}
+			}
+			t.Fatalf("no %s", name)
+			return nil
+		}
+		// Every branch is open at first.
+		for _, name := range []string{"init", "login", "bash"} {
+			if !find(name).IsExpanded() {
+				t.Errorf("%s is folded at first", name)
+			}
+		}
+
+		// The user folds login's branch, which stays folded as the
+		// processes are read again and sorted.
+		find("login").SetExpanded(false)
+		tw.advance(time.Second)
+		tw.sampleProcesses()
+		p.tree.Header().SetSortIndicator(colProcessName, qt.DescendingOrder)
+		if find("login").IsExpanded() || !find("init").IsExpanded() || !find("bash").IsExpanded() {
+			t.Error("the branches are not as they were left")
+		}
+		// The process chosen can be under a folded branch, and stays chosen.
+		p.tree.SetCurrentItem(find("vim"))
+		tw.sampleProcesses()
+		if p.chosen == nil || p.chosen.PID != 600 {
+			t.Errorf("chosen = %+v, want vim", p.chosen)
+		}
+		// Opened again, it stays open.
+		find("login").SetExpanded(true)
+		tw.sampleProcesses()
+		if !find("login").IsExpanded() {
+			t.Error("login is folded again")
+		}
+
+		// A process that ends is forgotten, so one given its PID is open.
+		find("login").SetExpanded(false)
+		tw.source.set(func(f *fakeSource) {
+			f.procs = slices.DeleteFunc(slices.Clone(treeProcesses), func(p stats.Process) bool { return p.PID == 400 })
+		})
+		tw.sampleProcesses()
+		if len(p.folded) != 0 {
+			t.Errorf("folded = %v after login ended", p.folded)
+		}
+
+		selectData(p.view, settings.ViewList)
+		if p.tree.RootIsDecorated() || !slices.Equal(depths(tw), make([]int, len(depths(tw)))) {
+			t.Error("the list has branches")
+		}
+	})
+}
+
+// TestProcessesUnchosen checks that nothing is sent a signal when no process
+// is chosen, and that what is folded is kept only of the tree's own items.
+func TestProcessesUnchosen(t *testing.T) {
+	tw := newTestWindow(t, showAll)
+	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
+	mainthread.Wait(func() {
+		p := &tw.processes
+		tw.sampleProcesses()
+		tw.sendSignal()
+		if msg := tw.StatusBar().CurrentMessage(); msg != "" {
+			t.Errorf("message = %q with no process chosen", msg)
+		}
+		// A signal not in the list, as none is chosen, is not sent.
+		chooseRow(tw, 0)
+		p.signals.SetCurrentIndex(-1)
+		tw.sendSignal()
+
+		stranger := qt.NewQTreeWidgetItem()
+		defer stranger.Delete()
+		p.fold(stranger, true)
+		if len(p.folded) != 0 {
+			t.Errorf("folded = %v after an item not in the tree", p.folded)
+		}
+	})
+	tw.source.Lock()
+	defer tw.source.Unlock()
+	if len(tw.source.signalled) != 0 {
+		t.Errorf("signalled %q", tw.source.signalled)
+	}
 }

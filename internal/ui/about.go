@@ -16,7 +16,8 @@ const aboutIconSize = 96
 // aboutText returns what the about box says of the program.
 func aboutText() string {
 	return "<h2>Prism</h2>" +
-		"<p>Graphs of the use of the processors, memory and swap, and network adapters.</p>" +
+		"<p>Graphs of the use of the processors, memory and swap, and network adapters, " +
+		"and a tree of the processes that are running.</p>" +
 		"<p>Copyright © 2026 Gary Willoughby. Released under the " +
 		"<a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU General Public License " +
 		"version 3</a>.</p>"

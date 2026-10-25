@@ -509,8 +509,8 @@ func TestScreenshot(t *testing.T) {
 	}
 	mainthread.Wait(func() {
 		tw.Resize(900, 820)
+		// The picture is a copy, which its finalizer frees.
 		img := tw.Grab()
-		defer img.Delete()
 		if !img.Save(path) {
 			t.Errorf("the screenshot could not be saved to %s", path)
 		}

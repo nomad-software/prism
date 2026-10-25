@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -236,11 +237,10 @@ func TestMenuShortcuts(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
 		for text, want := range map[string]string{"&Settings…": "Ctrl+,", "&Quit": "Ctrl+Q", "&About Prism": "Ctrl+I"} {
-			shortcut := menuAction(t, tw, text).Shortcut()
-			if got := shortcut.ToString(); got != want {
+			// The shortcut is a copy, which its finalizer frees.
+			if got := menuAction(t, tw, text).Shortcut().ToString(); got != want {
 				t.Errorf("%s shortcut = %q, want %q", text, got, want)
 			}
-			shortcut.Delete()
 		}
 	})
 }
@@ -274,6 +274,13 @@ func TestAbout(t *testing.T) {
 		}
 		if !strings.Contains(aboutText(), "GNU General Public License") {
 			t.Error("the about box does not give the program's licence")
+		}
+		// It says what the program shows, the processes as well as the
+		// graphs.
+		for _, want := range []string{"processors", "memory and swap", "network adapters", "processes"} {
+			if !strings.Contains(aboutText(), want) {
+				t.Errorf("the about box does not say it shows %s", want)
+			}
 		}
 		d.Layout().Activate()
 		if need := d.Layout().HeightForWidth(d.Width()); d.Height() < need {
@@ -614,11 +621,11 @@ func TestApplySettings(t *testing.T) {
 		if tw.memory.legend.entries[0].colour != "#010203" {
 			t.Errorf("memory colour = %q", tw.memory.legend.entries[0].colour)
 		}
+		// The palette is a copy, which its finalizer frees.
 		palette := qt.QGuiApplication_Palette()
 		if c := palette.ColorWithCr(qt.QPalette__Window).NameWithFormat(qt.QColor__HexRgb); c != "#2d2d2d" {
 			t.Errorf("window colour = %s, want the dark theme's", c)
 		}
-		palette.Delete()
 	})
 	s := settings.Load(tw.path)
 	if s.Theme != settings.ThemeDark || s.Intervals.Memory != 90 || s.Colours.Memory != "#010203" {
@@ -676,8 +683,9 @@ func TestApplyTheme(t *testing.T) {
 	t.Cleanup(func() { mainthread.Wait(func() { applyTheme("") }) })
 	mainthread.Wait(func() {
 		window := func() string {
+			// The palette is a copy, which its finalizer frees.
 			p := qt.QGuiApplication_Palette()
-			defer p.Delete()
+			defer runtime.KeepAlive(p)
 			return p.ColorWithCr(qt.QPalette__Window).NameWithFormat(qt.QColor__HexRgb)
 		}
 		applyTheme(settings.ThemeLight)

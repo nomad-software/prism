@@ -70,9 +70,8 @@ func (l Linux) Network() (map[string]NetCounters, error) {
 const userHZ = 100
 
 // Processes reads /proc/<pid>/stat, /proc/<pid>/statm and /proc/<pid>/status
-// of every process. A
-// process that cannot be read, as one that ended while the others were being
-// read, is left out.
+// of every process. A process that cannot be read, as one that ended while the
+// others were being read, is left out.
 func (l Linux) Processes() ([]Process, error) {
 	dir := filepath.Join(l.Root, "proc")
 	entries, err := os.ReadDir(dir)

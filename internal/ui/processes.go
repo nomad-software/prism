@@ -219,8 +219,9 @@ func (w *Window) processViewChanged() {
 
 // fitColumns makes the PIDs as wide as the largest of them, and gives each
 // other column its share of the rest of the width of the header, which is
-// that of the tree less its scroll bar, when the tree is resized or filled. The PIDs are measured by how many digits the largest has, not by
-// Qt, which would measure every row.
+// that of the tree less its scroll bar, when the tree is resized or filled.
+// The PIDs are measured by how many digits the largest has, not by Qt, which
+// would measure every row.
 func (p *processes) fitColumns() {
 	header := p.tree.Header()
 	largest := 0

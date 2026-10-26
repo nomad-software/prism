@@ -7,6 +7,7 @@ package ui
 import (
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"slices"
 	"time"
@@ -65,6 +66,12 @@ type Window struct {
 		legend         *legend
 	}
 	processes processes
+	// frames draws the graphs again between readings, at the frame rate
+	// the settings choose, so that their lines move along smoothly.
+	frames *qt.QTimer
+	// started says that Start has begun reading the statistics, after
+	// which the graphs are animated.
+	started bool
 }
 
 // section is the part of the window of one statistic: its heading, where
@@ -133,6 +140,10 @@ func NewWindow(path string, source stats.Source) *Window {
 	w.memory.timer = w.newTimer(w.config.Intervals.Memory, w.sampleMemory)
 	w.network.timer = w.newTimer(w.config.Intervals.Network, w.sampleNetwork)
 	w.processes.timer = w.newTimer(w.config.Intervals.Processes, w.sampleProcesses)
+	w.frames = qt.NewQTimer2(w.QObject)
+	// A frame is a few milliseconds, which a coarse timer is out by.
+	w.frames.SetTimerType(qt.PreciseTimer)
+	w.frames.OnTimeout(w.animate)
 
 	w.OnCloseEvent(func(super func(*qt.QCloseEvent), event *qt.QCloseEvent) {
 		w.saveSettings()
@@ -159,6 +170,8 @@ func (w *Window) Start() {
 	for _, t := range []*qt.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer} {
 		t.Start2()
 	}
+	w.started = true
+	w.setFrameRate(w.config.FrameRate)
 }
 
 // Activate shows the window, raised and given the focus, as when the program is
@@ -182,6 +195,31 @@ func (w *Window) newTimer(interval float64, read func()) *qt.QTimer {
 	t.SetInterval(int(settings.Duration(interval) / time.Millisecond))
 	t.OnTimeout(read)
 	return t
+}
+
+// setFrameRate draws the graphs the number of times a second between
+// readings, or only at each reading where it is 0.
+func (w *Window) setFrameRate(fps int) {
+	if fps <= 0 {
+		w.frames.Stop()
+		return
+	}
+	if ms := int(math.Round(1000 / float64(fps))); w.frames.Interval() != ms {
+		w.frames.SetInterval(ms)
+	}
+	if !w.frames.IsActive() {
+		w.frames.Start2()
+	}
+}
+
+// animate moves the graphs on to now. Their lines hold their newest values
+// to now until the next reading puts them right. A graph that is not shown is
+// not drawn.
+func (w *Window) animate() {
+	now := w.now()
+	for _, g := range []*graph{w.cpu.graph, w.memory.graph, w.network.received, w.network.sent} {
+		g.advance(now)
+	}
 }
 
 // makeMenus makes the menu bar: a File menu and a Help menu. On macOS the
@@ -335,14 +373,14 @@ func (w *Window) showCPU() {
 	var lines []line
 	var entries []entry
 	if w.config.CPUMode == settings.CPUTotal {
-		lines = append(lines, line{colours.Total, w.cpu.all.Points()})
+		lines = append(lines, line{colours.Total, w.cpu.all.Points(), true})
 		entries = append(entries, entry{colours.Total, "CPU", w.cpuPercent(&w.cpu.all), w.colourSetter(func(c *settings.Colours, colour string) {
 			c.Total = colour
 		})})
 	} else {
 		for i := range w.cpu.cores {
 			s := &w.cpu.cores[i]
-			lines = append(lines, line{colours.Core(i), s.Points()})
+			lines = append(lines, line{colours.Core(i), s.Points(), true})
 			entries = append(entries, entry{colours.Core(i), fmt.Sprintf("CPU%d", i+1), w.cpuPercent(s), w.colourSetter(func(c *settings.Colours, colour string) {
 				// A core set to its default is not kept as a choice, as
 				// the settings dialog has it.
@@ -411,8 +449,8 @@ func (w *Window) showMemory() {
 	colours := w.config.Colours
 	m := w.memory.last
 	lines := []line{
-		{colours.Memory, w.memory.memory.Points()},
-		{colours.Swap, w.memory.swap.Points()},
+		{colours.Memory, w.memory.memory.Points(), true},
+		{colours.Swap, w.memory.swap.Points(), true},
 	}
 	// The graph is of how much is in use, up to how much memory there is,
 	// or to more swap than that if it is in use.
@@ -526,8 +564,10 @@ func (w *Window) showNetwork() {
 		}
 		a := w.network.adapters[name]
 		colour, _ := w.config.Colours.Adapter(name)
-		received = append(received, line{colour, a.received.Points()})
-		sent = append(sent, line{colour, a.sent.Points()})
+		// An adapter that has gone is not held, and its lines end at its
+		// last reading.
+		received = append(received, line{colour, a.received.Points(), a.present})
+		sent = append(sent, line{colour, a.sent.Points(), a.present})
 		largestReceived = max(largestReceived, a.received.Max(since))
 		largestSent = max(largestSent, a.sent.Max(since))
 		if a.present {
@@ -577,6 +617,10 @@ func (w *Window) applySettings(s settings.Settings) {
 		if ms := int(settings.Duration(t.interval) / time.Millisecond); t.timer.Interval() != ms {
 			t.timer.SetInterval(ms)
 		}
+	}
+	// The frame rate is put into effect once the window has started.
+	if w.started {
+		w.setFrameRate(s.FrameRate)
 	}
 	w.showCPU()
 	w.showMemory()

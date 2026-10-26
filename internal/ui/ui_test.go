@@ -152,6 +152,9 @@ func TestNewWindow(t *testing.T) {
 				t.Errorf("%s timer runs before Start", name)
 			}
 		}
+		if tw.frames.IsActive() {
+			t.Error("the graphs are animated before Start")
+		}
 		var menus []string
 		for _, a := range tw.MenuBar().Actions() {
 			menus = append(menus, a.Text())
@@ -197,6 +200,11 @@ func TestStart(t *testing.T) {
 				}
 				timer.Stop()
 			}
+			// 30 frames a second.
+			if !tw.frames.IsActive() || tw.frames.Interval() != 33 {
+				t.Errorf("frames every %d ms, running %v, want 33", tw.frames.Interval(), tw.frames.IsActive())
+			}
+			tw.frames.Stop()
 		}()
 		if !tw.IsMaximized() && !tw.IsFullScreen() && tw.WindowState()&qt.WindowMaximized == 0 {
 			t.Error("the window is not maximised, as the settings say it was")
@@ -612,6 +620,10 @@ func TestApplySettings(t *testing.T) {
 		s.Colours.Memory = "#010203"
 		tw.applySettings(s)
 
+		// The graphs are not animated before Start, whatever the settings.
+		if tw.frames.IsActive() {
+			t.Error("the graphs are animated before Start")
+		}
 		if tw.cpu.timer.Interval() != 500 || tw.memory.timer.Interval() != 90_000 || tw.network.timer.Interval() != 3_600_000 || tw.processes.timer.Interval() != 1500 {
 			t.Errorf("intervals = %d, %d, %d, %d", tw.cpu.timer.Interval(), tw.memory.timer.Interval(), tw.network.timer.Interval(), tw.processes.timer.Interval())
 		}
@@ -634,6 +646,58 @@ func TestApplySettings(t *testing.T) {
 	if s.Width != 800 || s.Height != 750 {
 		t.Errorf("saved size = %dx%d, want the window's", s.Width, s.Height)
 	}
+}
+
+func TestFrameRate(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	tw.source.set(func(f *fakeSource) {
+		f.memory = stats.Memory{Total: 100, Used: 10}
+		f.network = map[string]stats.NetCounters{"eth0": {}}
+	})
+	mainthread.Wait(func() {
+		tw.Start()
+		defer func() {
+			for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer, tw.frames} {
+				timer.Stop()
+			}
+		}()
+		s := tw.config
+		s.FrameRate = 60
+		tw.applySettings(s)
+		if !tw.frames.IsActive() || tw.frames.Interval() != 17 {
+			t.Errorf("frames every %d ms, running %v, want 17", tw.frames.Interval(), tw.frames.IsActive())
+		}
+		s.FrameRate = 0
+		tw.applySettings(s)
+		if tw.frames.IsActive() {
+			t.Error("the graphs are animated at a frame rate of 0")
+		}
+
+		// A frame moves every graph on to now, and their lines hold. The
+		// scales and legends are left as the last reading had them.
+		top, value := tw.memory.graph.top, tw.memory.legend.entries[0].value
+		tw.advance(time.Second)
+		tw.animate()
+		if tw.memory.graph.top != top || tw.memory.legend.entries[0].value != value {
+			t.Error("a frame changed the scale or the legend")
+		}
+		for _, g := range []*graph{tw.cpu.graph, tw.memory.graph, tw.network.received, tw.network.sent} {
+			if !g.now.Equal(tw.clock) {
+				t.Errorf("a graph is at %v, want %v", g.now, tw.clock)
+			}
+			for _, l := range g.lines {
+				if !l.hold {
+					t.Error("a line does not hold")
+				}
+			}
+		}
+		// An adapter that has gone does not.
+		tw.source.set(func(f *fakeSource) { f.network = map[string]stats.NetCounters{} })
+		tw.sampleNetwork()
+		if l := tw.network.received.lines; len(l) != 1 || l[0].hold {
+			t.Errorf("lines = %+v, want the gone adapter's not held", l)
+		}
+	})
 }
 
 func TestEditSettings(t *testing.T) {

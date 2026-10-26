@@ -19,6 +19,7 @@ type settingsDialog struct {
 	*qt.QDialog
 	cpuInterval, memoryInterval, networkInterval, processesInterval *qt.QDoubleSpinBox
 	cpuMode, theme, sizeUnits, rateUnits                            *qt.QComboBox
+	frameRate                                                       *qt.QSpinBox
 	// shown lists the network adapters, in the order of names, each ticked
 	// if it is shown, with its alias beside it.
 	shown *qt.QTableWidget
@@ -38,6 +39,9 @@ type settingsDialog struct {
 // tabMargin is the space between the edge of a tab of the settings dialog
 // and what is on it, as TriggerAPI has it.
 const tabMargin = 20
+
+// settingsWidth is the narrowest the settings dialog opens.
+const settingsWidth = 600
 
 // colourTableHeight is the least height of the table of colours, which
 // scrolls to show the rest.
@@ -73,6 +77,13 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 	addItem(d.cpuMode, "A line for each core", settings.CPUCores)
 	addItem(d.cpuMode, "One line for all cores", settings.CPUTotal)
 	generalForm.AddRow3("CPU", d.cpuMode.QWidget)
+	d.frameRate = newFrameRateBox()
+	// It is as wide as the boxes of the intervals above it, whose longest
+	// value is longer than its own.
+	d.frameRate.SetMinimumWidth(d.cpuInterval.SizeHint().Width())
+	generalForm.AddRow3("Animation", d.frameRate.QWidget)
+	generalForm.AddRowWithWidget(note("How many times a second the graphs move along between readings, " +
+		"each line held at its last value until the next reading puts it right. Off draws them at each reading alone.").QWidget)
 	units := sectionHeading("Units")
 	units.SetContentsMargins(0, 12, 0, 0)
 	generalForm.AddRowWithWidget(units.QWidget)
@@ -138,7 +149,9 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 	layout := qt.NewQVBoxLayout(d.QWidget)
 	layout.AddWidget2(tabs.QWidget, 1)
 	layout.AddWidget(d.box.QWidget)
-	d.Resize(600, 560)
+	// It opens as big as its tabs need, which some styles, as Breeze,
+	// space more widely; smaller, their rows are squashed.
+	fitDialog(d.QDialog, settingsWidth)
 	d.OnFinished(func(int) { d.DeleteLater() })
 	d.Open()
 	return d
@@ -260,6 +273,7 @@ func (d *settingsDialog) show(s settings.Settings) {
 	d.networkInterval.SetValue(s.Intervals.Network)
 	d.processesInterval.SetValue(s.Intervals.Processes)
 	selectData(d.cpuMode, s.CPUMode)
+	d.frameRate.SetValue(s.FrameRate)
 	selectData(d.theme, s.Theme)
 	selectData(d.sizeUnits, s.SizeUnits)
 	selectData(d.rateUnits, s.RateUnits)
@@ -299,6 +313,7 @@ func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 		Processes: d.processesInterval.Value(),
 	}
 	s.CPUMode = currentData(d.cpuMode)
+	s.FrameRate = d.frameRate.Value()
 	s.Theme = currentData(d.theme)
 	s.SizeUnits = currentData(d.sizeUnits)
 	s.RateUnits = currentData(d.rateUnits)
@@ -400,6 +415,16 @@ func newIntervalBox() *qt.QDoubleSpinBox {
 	b.SetRange(settings.MinInterval, settings.MaxInterval)
 	b.SetSuffix(" s")
 	b.SetAccelerated(true)
+	return b
+}
+
+// newFrameRateBox returns a box for the frame rate of the graphs, in frames
+// a second, which reads Off at 0.
+func newFrameRateBox() *qt.QSpinBox {
+	b := qt.NewQSpinBox2()
+	b.SetRange(0, settings.MaxFrameRate)
+	b.SetSuffix(" fps")
+	b.SetSpecialValueText("Off")
 	return b
 }
 

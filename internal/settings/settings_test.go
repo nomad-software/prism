@@ -70,6 +70,7 @@ func TestSaveLoad(t *testing.T) {
 	s.Theme = ThemeDark
 	s.Intervals = Intervals{CPU: 0.5, Memory: 30, Network: MaxInterval, Processes: 4.5}
 	s.CPUMode = CPUTotal
+	s.FrameRate = 0
 	s.ProcessSort, s.ProcessOrder = SortName, OrderAscending
 	s.ProcessFilter, s.ProcessView = ProcessesUser, ViewTree
 	s.Colours.Grid = "#ff112233"
@@ -548,6 +549,29 @@ func TestLoadRoundsIntervals(t *testing.T) {
 		}
 		if got := Load(path).Intervals.CPU; got != c.want {
 			t.Errorf("cpu interval %s = %v, want %v", c.json, got, c.want)
+		}
+	}
+}
+
+func TestLoadFrameRate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	for _, c := range []struct {
+		json string
+		want int
+	}{
+		// Missing, as in the settings of earlier versions, is the default.
+		{`{}`, DefaultFrameRate},
+		{`{"frameRate": 0}`, 0},
+		{`{"frameRate": 1}`, 1},
+		{`{"frameRate": 60}`, 60},
+		{`{"frameRate": 61}`, DefaultFrameRate},
+		{`{"frameRate": -1}`, DefaultFrameRate},
+	} {
+		if err := os.WriteFile(path, []byte(c.json), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := Load(path).FrameRate; got != c.want {
+			t.Errorf("frame rate of %s = %d, want %d", c.json, got, c.want)
 		}
 	}
 }

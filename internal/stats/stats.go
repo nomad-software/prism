@@ -1,8 +1,8 @@
 // Package stats reads what the system says of its processors, memory,
-// network adapters and processes: on Linux from /proc and /sys, and on macOS from the
-// kernel's own interfaces. It reads counters as they are at one moment;
-// working out how they change is left to the caller. It has no dependency on
-// the UI.
+// network adapters and processes: on Linux from /proc and /sys, and on macOS
+// from the kernel's own interfaces. It reads counters as they are at one
+// moment; working out how they change is left to the caller. It has no
+// dependency on the UI.
 package stats
 
 import (

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"runtime"
+	"slices"
 	"time"
 
 	qt "github.com/mappu/miqt/qt6"
@@ -11,10 +12,12 @@ import (
 )
 
 // line is a line of a graph: its colour, as the settings write it, and its
-// values.
+// values. A line that holds is drawn on from its newest value, unchanged, to
+// the right edge of the graph, as it is until the next reading puts it right.
 type line struct {
 	colour string
 	points []history.Point
+	hold   bool
 }
 
 // graph draws lines of values over time on a grid, with the values of the
@@ -50,6 +53,13 @@ func newGraph() *graph {
 // with the labels.
 func (g *graph) show(now time.Time, span time.Duration, top float64, labels []string, lines []line, grid string) {
 	g.now, g.span, g.top, g.labels, g.lines, g.grid = now, span, top, labels, lines, grid
+	g.Update()
+}
+
+// advance moves the right edge of the graph on to the time, and draws it
+// again, so that its lines move along between readings.
+func (g *graph) advance(now time.Time) {
+	g.now = now
 	g.Update()
 }
 
@@ -158,7 +168,12 @@ func (g *graph) paint() {
 // drawSeries draws a line of the graph in the rectangle of its grid, as a
 // curve through its points.
 func (g *graph) drawSeries(p *qt.QPainter, l line, r chart.Rect) {
-	if len(l.points) < 2 {
+	points := l.points
+	if n := len(points); l.hold && n > 0 && g.now.After(points[n-1].T) {
+		// The points are the series', which are not to be changed.
+		points = append(slices.Clip(points), history.Point{T: g.now, V: points[n-1].V})
+	}
+	if len(points) < 2 {
 		return
 	}
 	colour := qt.NewQColor6(l.colour)
@@ -169,7 +184,7 @@ func (g *graph) drawSeries(p *qt.QPainter, l line, r chart.Rect) {
 	p.SetPenWithPen(pen)
 	p.SetBrushWithStyle(qt.NoBrush)
 
-	placed := chart.Place(l.points, g.now, g.span, g.top, r)
+	placed := chart.Place(points, g.now, g.span, g.top, r)
 	path := qt.NewQPainterPath()
 	defer path.Delete()
 	start := qt.NewQPointF3(placed[0].X, placed[0].Y)

@@ -206,7 +206,6 @@ func (l *legend) paint() {
 	defer runtime.KeepAlive(fm)
 	lineHeight := fm.Height()
 	height := l.entryHeight(lineHeight)
-	width := l.entryWidth()
 	g := l.grid()
 
 	palette := l.Palette()
@@ -217,16 +216,16 @@ func (l *legend) paint() {
 	faint.SetAlphaF(faintOpacity)
 
 	for i, e := range l.entries {
-		column, row := g.Cell(i)
-		x := float64(column * (width + columnGap))
-		y := float64(row * (height + rowGap))
-
-		drawSwatch(p, e.colour, x, y+float64(max(lineHeight-swatchHeight, 0))/2)
+		// The swatch is where clicks find it.
+		sx, sy := l.swatchPlace(i, g, lineHeight)
+		drawSwatch(p, e.colour, sx, sy)
 		if i == l.hovered {
-			drawRing(p, text, x, y+float64(max(lineHeight-swatchHeight, 0))/2)
+			drawRing(p, text, sx, sy)
 		}
 
-		x += swatchWidth + legendGap
+		_, row := g.Cell(i)
+		x := sx + swatchWidth + legendGap
+		y := float64(row * (height + rowGap))
 		p.SetPen(text)
 		drawText(p, x, y, float64(l.labelWidth), float64(lineHeight), int(qt.AlignLeft|qt.AlignVCenter), e.label)
 		align := qt.AlignRight

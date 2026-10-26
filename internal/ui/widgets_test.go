@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"slices"
@@ -58,7 +59,7 @@ func TestGraphPaint(t *testing.T) {
 		// A line of one point is not drawn, and does not fail.
 		var single history.Series
 		single.Add(now, 10)
-		g.show(now, time.Minute, 100, chart.PercentLabels(), []line{{"#ff0000", s.Points()}, {"#00ff00", single.Points()}}, "#0000ff")
+		g.show(now, time.Minute, 100, chart.PercentLabels(), []line{{"#ff0000", s.Points(), false}, {"#00ff00", single.Points(), false}}, "#0000ff")
 		img := render(g.QWidget)
 		defer img.Delete()
 		if n := countColour(img, "#ff0000"); n < 300 {
@@ -69,6 +70,53 @@ func TestGraphPaint(t *testing.T) {
 		}
 		if n := countColour(img, "#0000ff"); n < 1000 {
 			t.Errorf("the grid has %d pixels", n)
+		}
+	})
+}
+
+func TestGraphHold(t *testing.T) {
+	mainthread.Wait(func() {
+		g := newGraph()
+		defer g.Delete()
+		g.Resize(400, 160)
+		now := time.Unix(1_700_000_000, 0)
+		var s history.Series
+		s.Add(now.Add(-time.Minute), 50)
+		s.Add(now, 50)
+		points := s.Points()
+		// The graph moves on half a minute: the line that holds goes on to
+		// its right edge, and the one that does not stops half way.
+		g.show(now, time.Minute, 100, chart.PercentLabels(), []line{{"#ff0000", points, true}, {"#00ff00", points, false}}, "#0000ff")
+		g.advance(now.Add(30 * time.Second))
+		img := render(g.QWidget)
+		defer img.Delete()
+		right := func(colour string) int {
+			want := qt.NewQColor6(colour)
+			defer want.Delete()
+			last := -1
+			for x := range img.Width() {
+				for y := range img.Height() {
+					if p := int(img.Pixel(x, y)); p>>16&0xff == want.Red() && p>>8&0xff == want.Green() && p&0xff == want.Blue() {
+						last = x
+					}
+				}
+			}
+			return last
+		}
+		font := smallFont(g.QWidget)
+		defer font.Delete()
+		fm := qt.NewQFontMetrics(font)
+		defer fm.Delete()
+		r := plotRect(g.Width(), g.Height(), g.labels, fm)
+		if x := right("#ff0000"); float64(x) < r.X+r.W-2 {
+			t.Errorf("the held line ends at %d, want the right edge, %v", x, r.X+r.W)
+		}
+		if x, mid := right("#00ff00"), r.X+r.W/2; float64(x) > mid+2 || float64(x) < mid-2 {
+			t.Errorf("the line that does not hold ends at %d, want %v", x, mid)
+		}
+		// The series is as it was.
+		if len(s.Points()) != 2 || cap(points) != cap(s.Points()) {
+			t.Error("drawing changed the points of the series")
 		}
 	})
 }
@@ -208,6 +256,7 @@ func TestSettingsDialog(t *testing.T) {
 	current.Width = 1234
 	current.Intervals = settings.Intervals{CPU: 1, Memory: 5, Network: 3600, Processes: 0.5}
 	current.CPUMode = settings.CPUTotal
+	current.FrameRate = 0
 	current.ProcessSort, current.ProcessOrder = settings.SortMemory, settings.OrderAscending
 	current.ProcessFilter, current.ProcessView = settings.ProcessesUser, settings.ViewTree
 	current.Theme = settings.ThemeLight
@@ -238,6 +287,17 @@ func TestSettingsDialog(t *testing.T) {
 		if d.cpuInterval.Minimum() != 0.1 || d.cpuInterval.Maximum() != 3600 || d.cpuInterval.Decimals() != 1 {
 			t.Errorf("interval range = %v to %v, to %d places", d.cpuInterval.Minimum(), d.cpuInterval.Maximum(), d.cpuInterval.Decimals())
 		}
+		if d.frameRate.Value() != 0 || d.frameRate.Text() != "Off" || d.frameRate.Maximum() != settings.MaxFrameRate {
+			t.Errorf("frame rate = %q, up to %d", d.frameRate.Text(), d.frameRate.Maximum())
+		}
+		// It opens big enough for its tabs, so that their rows are not
+		// squashed.
+		if hint := d.SizeHint(); d.Width() < hint.Width() || d.Height() < hint.Height() {
+			t.Errorf("the dialog is %dx%d, smaller than its %dx%d", d.Width(), d.Height(), hint.Width(), hint.Height())
+		}
+		if w, want := d.frameRate.MinimumWidth(), d.cpuInterval.SizeHint().Width(); w != want {
+			t.Errorf("frame rate box is %d wide, want the intervals' %d", w, want)
+		}
 		if currentData(d.cpuMode) != settings.CPUTotal || currentData(d.theme) != settings.ThemeLight ||
 			currentData(d.sizeUnits) != settings.SizeDecimal || currentData(d.rateUnits) != settings.RateBytes {
 			t.Error("the mode or theme is not shown")
@@ -252,6 +312,7 @@ func TestSettingsDialog(t *testing.T) {
 
 		d.networkInterval.SetValue(7)
 		d.processesInterval.SetValue(12.5)
+		d.frameRate.SetValue(45)
 		selectData(d.cpuMode, settings.CPUCores)
 		selectData(d.theme, "")
 		selectData(d.rateUnits, settings.RateBits)
@@ -280,6 +341,9 @@ func TestSettingsDialog(t *testing.T) {
 	if got.ProcessSort != settings.SortMemory || got.ProcessOrder != settings.OrderAscending ||
 		got.ProcessFilter != settings.ProcessesUser || got.ProcessView != settings.ViewTree {
 		t.Errorf("processes %q, %q, %q, %q, want them kept", got.ProcessSort, got.ProcessOrder, got.ProcessFilter, got.ProcessView)
+	}
+	if got.FrameRate != 45 {
+		t.Errorf("FrameRate = %d", got.FrameRate)
 	}
 	if got.CPUMode != settings.CPUCores || got.Theme != "" {
 		t.Errorf("mode %q, theme %q", got.CPUMode, got.Theme)
@@ -636,6 +700,40 @@ func TestLegendClickCancelled(t *testing.T) {
 		x, y := l.swatchPlace(0, l.grid(), fm.Height())
 		if !l.click(x+1, y+1) || called {
 			t.Error("a colour was set though none was chosen")
+		}
+	})
+}
+
+func TestLegendSwatchPlaces(t *testing.T) {
+	colours := []string{"#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff"}
+	mainthread.Wait(func() {
+		l := newLegend(false)
+		defer l.Delete()
+		l.Show()
+		var entries []entry
+		for i, c := range colours {
+			entries = append(entries, entry{c, fmt.Sprintf("CPU%d", i+1), "1.0%", func(string) {}})
+		}
+		l.show(entries)
+		// Two entries a row, so that they wrap into three rows.
+		l.Resize(2*l.entryWidth()+columnGap+10, 10)
+		img := render(l.QWidget)
+		defer img.Delete()
+		fm := l.FontMetrics()
+		g := l.grid()
+		if g.Columns != 2 || g.Rows != 3 {
+			t.Fatalf("grid = %+v, want 2 columns of 3 rows", g)
+		}
+		for i, c := range colours {
+			// Each swatch is drawn where a click finds it.
+			x, y := l.swatchPlace(i, g, fm.Height())
+			cx, cy := x+swatchWidth/2, y+swatchHeight/2
+			if got := fmt.Sprintf("#%06x", img.Pixel(int(cx), int(cy))&0xffffff); got != c {
+				t.Errorf("swatch %d at %v,%v is %s, want %s", i, cx, cy, got, c)
+			}
+			if l.swatchAt(cx, cy) != i {
+				t.Errorf("swatch %d is not found at its middle", i)
+			}
 		}
 	})
 }

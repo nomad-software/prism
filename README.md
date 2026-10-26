@@ -82,7 +82,9 @@ A graph spans a minute, or two update intervals where they are longer than
 half a minute, so that it always has a line. Each statistic is read at an
 interval of its own. Every graph is drawn across its whole width from the first
 reading: the processors and adapters at 0 until their use is known, and memory
-at what it first is.
+at what it first is. Between readings the graphs move along smoothly, 30 times
+a second by default, each line held at its last value out to the right edge
+until the next reading puts it right.
 
 ### Where the statistics come from
 
@@ -109,7 +111,8 @@ built with). On macOS these are in the application's menu.
 
 - **General**: the update interval of each statistic and of the processes, in seconds to a tenth
   of a second, from 0.1 to 3600 (2 by default); whether the processors have a line each or one for
-  all; and the units: sizes in binary (KiB, MiB) or decimal (kB, MB) units,
+  all; how many frames a second the graphs are animated at between readings, from 1 to 60
+(30 by default), or Off to draw them at each reading alone; and the units: sizes in binary (KiB, MiB) or decimal (kB, MB) units,
   and network speeds in bytes (MiB/s) or bits (Mib/s) a second.
 - **Network**: every network adapter that has been seen, ticked if it is
   shown in the network graphs and legend. An adapter that is not ticked is

@@ -28,6 +28,13 @@ const (
 	DefaultInterval = 2
 )
 
+// The rates the graphs can be animated at, in frames a second, where 0 is
+// not animated.
+const (
+	MaxFrameRate     = 60
+	DefaultFrameRate = 30
+)
+
 // The themes that can be chosen, besides the system's, which is "".
 const (
 	ThemeLight = "light"
@@ -102,6 +109,11 @@ type Settings struct {
 	// show one for all of them.
 	CPUMode string `json:"cpuMode"`
 
+	// FrameRate is how many times a second the graphs are drawn as they
+	// move on between readings, from 0, where they are only drawn at each
+	// reading, to MaxFrameRate.
+	FrameRate int `json:"frameRate"`
+
 	// SizeUnits is SizeBinary or SizeDecimal, for sizes and rates, and
 	// RateUnits is RateBytes or RateBits, for network rates.
 	SizeUnits string `json:"sizeUnits"`
@@ -165,6 +177,7 @@ func Defaults() Settings {
 		Height:    defaultHeight,
 		Intervals: Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: DefaultInterval, Processes: DefaultInterval},
 		CPUMode:   CPUCores,
+		FrameRate: DefaultFrameRate,
 		SizeUnits: SizeBinary,
 		RateUnits: RateBytes,
 		// The busiest processes are first.
@@ -236,6 +249,9 @@ func (s *Settings) normalise() {
 	}
 	if s.CPUMode != CPUCores && s.CPUMode != CPUTotal {
 		s.CPUMode = d.CPUMode
+	}
+	if s.FrameRate < 0 || s.FrameRate > MaxFrameRate {
+		s.FrameRate = d.FrameRate
 	}
 	if s.SizeUnits != SizeBinary && s.SizeUnits != SizeDecimal {
 		s.SizeUnits = d.SizeUnits

@@ -160,11 +160,58 @@ the AppImage if it was run from one. If the desktop keeps showing an older
 icon after an update, it has the old one cached: logging out and in again
 clears it (on KDE, so does deleting `~/.cache/icon-cache.kcache`).
 
+## Requirements
+
+Prism is developed and tested on Linux. There is a release for macOS on
+Apple Silicon (see [macOS app](#macos-app)).
+
+Building needs:
+
+- Go 1.27 or later
+- A C++ compiler (GCC or Clang)
+- `pkg-config`
+- The Qt 6 development files of Qt Widgets
+
+Install them with your distribution's package manager:
+
+```sh
+# Arch, CachyOS, Manjaro
+sudo pacman -S go gcc pkgconf qt6-base
+
+# Debian, Ubuntu
+sudo apt install golang-go build-essential pkg-config qt6-base-dev
+
+# Fedora
+sudo dnf install golang gcc-c++ pkgconf-pkg-config qt6-qtbase-devel
+
+# openSUSE
+sudo zypper install go gcc-c++ pkgconf-pkg-config qt6-base-devel
+
+# macOS, with Homebrew and the Xcode Command Line Tools
+brew install go pkgconf qtbase
+```
+
+If your distribution's Go is older than 1.27, install Go from
+[go.dev/dl](https://go.dev/dl/) instead.
+
+Check that Qt can be found with:
+
+```sh
+pkg-config --modversion Qt6Widgets
+```
+
+This should print a version starting with 6.
+
+Running a built binary on another machine only needs the Qt 6 runtime
+libraries (`qt6-base` on Arch, `libqt6widgets6` on Debian and Ubuntu,
+`qt6-qtbase` on Fedora, `libQt6Widgets6` on openSUSE). The icons are
+Prism's own, drawn in Go, so no icon theme is needed.
+
 ## Building
 
-It needs Go, a C++ compiler, pkg-config and the Qt 6 development files (on
-Debian and Ubuntu, `qt6-base-dev`; on Arch, `qt6-base`; on macOS, Homebrew's
-`qtbase`). The bindings take some minutes to compile the first time.
+The first build compiles the whole Qt binding and takes several minutes,
+printing a lot of compiler warnings from the Qt headers which can be ignored.
+Later builds use the Go build cache and take a few seconds.
 
 ```sh
 make build      # builds ./prism

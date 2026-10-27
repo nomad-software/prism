@@ -69,6 +69,9 @@ type processes struct {
 	// folded are the processes whose branches are folded; the others are
 	// open, as each is at first.
 	folded map[stats.ProcessKey]bool
+	// search narrows the processes shown to those whose names or PIDs hold
+	// what is written in it.
+	search *qt.QLineEdit
 	// filter chooses which processes are shown, and view whether as a list
 	// or a tree.
 	filter, view *qt.QComboBox
@@ -102,6 +105,14 @@ func (w *Window) makeProcesses() {
 	selectData(p.view, w.config.ProcessView)
 	p.filter.OnCurrentIndexChanged(func(int) { w.processViewChanged() })
 	p.view.OnCurrentIndexChanged(func(int) { w.processViewChanged() })
+
+	// What is searched for is written above the tree, and narrows it as it
+	// is written. It is not kept.
+	p.search = qt.NewQLineEdit2()
+	p.search.SetPlaceholderText("Search by name or PID")
+	p.search.SetClearButtonEnabled(true)
+	p.search.OnTextChanged(func(string) { w.showProcesses() })
+	p.layout.AddWidget(p.search.QWidget)
 
 	p.folded = map[stats.ProcessKey]bool{}
 	p.tree = qt.NewQTreeWidget2()
@@ -264,7 +275,7 @@ func (w *Window) showProcesses() {
 	p.filling = true
 	defer func() { p.filling = false }()
 	header := p.tree.Header()
-	p.shown = filterProcesses(p.list, w.config.ProcessFilter)
+	p.shown = filterProcesses(p.list, w.config.ProcessFilter, p.search.Text())
 	column, descending := header.SortIndicatorSection(), header.SortIndicatorOrder() == qt.DescendingOrder
 	tree := w.config.ProcessView == settings.ViewTree
 	if tree {
@@ -399,16 +410,20 @@ func sortProcesses(list []usage.Process, column int, descending bool) {
 }
 
 // filterProcesses returns those of the processes the filter, one of the
-// settings' Processes, chooses: every one, those of people, or the system's.
-func filterProcesses(list []usage.Process, filter string) []usage.Process {
+// settings' Processes, chooses: every one, those of people, or the system's;
+// and of those, the ones whose names hold what is searched for, whatever its
+// case, or whose PIDs do, unless it is blank.
+func filterProcesses(list []usage.Process, filter, search string) []usage.Process {
+	search = strings.ToLower(strings.TrimSpace(search))
 	return slices.DeleteFunc(slices.Clone(list), func(p usage.Process) bool {
-		switch filter {
-		case settings.ProcessesUser:
-			return p.System()
-		case settings.ProcessesSystem:
-			return !p.System()
+		switch {
+		case filter == settings.ProcessesUser && p.System(),
+			filter == settings.ProcessesSystem && !p.System():
+			return true
+		case search == "":
+			return false
 		}
-		return false
+		return !strings.Contains(strings.ToLower(p.Name), search) && !strings.Contains(strconv.Itoa(p.PID), search)
 	})
 }
 

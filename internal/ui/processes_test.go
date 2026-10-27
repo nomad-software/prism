@@ -596,6 +596,56 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 	})
 }
 
+// TestProcessSearch checks that what is written in the search above the
+// table narrows the processes to those whose names or PIDs hold it, in
+// either view.
+func TestProcessSearch(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
+	})
+	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
+	mainthread.Wait(func() {
+		p := &tw.processes
+		tw.tabs.SetCurrentIndex(tabProcesses)
+		qt.QCoreApplication_ProcessEvents()
+		if p.search.Geometry().Bottom() >= p.tree.Geometry().Top() {
+			t.Error("the search is not above the table")
+		}
+		tw.sampleProcesses()
+		for _, c := range []struct {
+			text string
+			want []string
+		}{
+			{"SH", []string{"sshd", "bash"}},
+			{"  vim ", []string{"vim"}},
+			{"00", []string{"sshd", "login", "bash", "vim"}},
+			{"nothing", nil},
+			{"", []string{"init", "kthreadd", "sshd", "login", "bash", "vim"}},
+		} {
+			p.search.SetText(c.text)
+			if got := column(tw, colProcessName); !slices.Equal(got, c.want) {
+				t.Errorf("search %q = %q, want %q", c.text, got, c.want)
+			}
+		}
+		// In a tree, one whose parent is not found is at the top.
+		selectData(p.view, settings.ViewTree)
+		p.search.SetText("o")
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"login"}) {
+			t.Errorf("tree search = %q", got)
+		}
+		p.search.SetText("i")
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"init", "login", "vim"}) || !slices.Equal(depths(tw), []int{0, 1, 0}) {
+			t.Errorf("tree search = %q, %v", got, depths(tw))
+		}
+		// It stays as it is when the processes are read again.
+		tw.sampleProcesses()
+		if got := column(tw, colProcessName); len(got) != 3 {
+			t.Errorf("after reading again = %q", got)
+		}
+	})
+}
+
 func TestTreeOrderRing(t *testing.T) {
 	// Processes that are each other's parents, as cannot be, are all listed.
 	list := []usage.Process{{Process: stats.Process{PID: 1, PPID: 2}}, {Process: stats.Process{PID: 2, PPID: 1}}}

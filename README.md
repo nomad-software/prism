@@ -14,7 +14,8 @@ It is written in Go with Qt 6, through the
   minute, with the numbers beside them; and a tab of the processes, a
   shortcut away (Ctrl+2), to find what is busy and stop it.
 - **It answers "what is using my machine?"** Sort the processes by how busy
-  they are or how much memory they have, see them as a tree to find what
+  they are or how much memory they have, search for them by name or PID,
+  see them as a tree to find what
   started what, fold away what does not matter, and send the one at fault a
   signal: SIGKILL, SIGTERM, or another, to end it, stop it or go on.
 - **It asks for nothing.** No root, no daemon, no service, no account and
@@ -47,7 +48,6 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
   its fastest. The legend says, beside each adapter's name, how fast it is
   downloading (↓) and uploading (↑), with how much it has in all in brackets.
   Adapters can be hidden in the settings.
-
 - **Processes**: every process, with its PID, name, how busy it is (as top
   counts it, a percentage of one processor, so more than 100% for one
   running on several), and how much memory it has ("—" for the kernel's own
@@ -55,13 +55,16 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
   by it, and again to reverse it; it starts with the busiest first, and
   keeps the order chosen for next time. The PID column is as wide as the
   largest PID, and the others share the rest of the width, the name half of
-  it. Below the table, at the left, choose to see the processes of people
-  (user processes, the default), the system's (those of root, of services
-  and of the kernel) or all of them, and to see them as a list or as a
-  tree, each process under the one that started it, whose branches fold and
-  open with the arrows beside the names and stay as they are left; these
-  choices are kept for next time too. Choose a
-  process, then a signal (SIGKILL unless another is chosen), and **Send
+  it. Type in the search box above the table to narrow it, as you type, to
+  the processes whose names (in any case) or PIDs hold what is typed; the
+  search is not kept for next time. Below the table, at the left, choose to
+  see the processes of people (user processes, the default), the system's
+  (those of root, of services and of the kernel) or all of them, and to see
+  them as a list or as a tree, each process under the one that started it,
+  whose branches fold and open with the arrows beside the names and stay as
+  they are left; these choices are kept for next time too. In a tree, a
+  process found by a search whose parent is not found is at the top. Choose
+  a process, then a signal (SIGKILL unless another is chosen), and **Send
   Signal** sends it; the status bar says whether it was sent. A process that
   has ended in the meantime is not sent it, even if its PID has been given
   to another.
@@ -74,17 +77,17 @@ once, as if chosen in the settings.
 
 What each legend says of a line is written beside its name: the use of each
 processor plainly, and that of memory, swap and the network adapters at 40%
-opacity, so that the names stand out. The labels of the
-graphs' scales and times are written small, at 50% opacity. The network graphs
-have "Download" and "Upload" written faintly in their top left corners.
+opacity, so that the names stand out. The labels of the graphs' scales and
+times are written small, at 50% opacity. The network graphs have "Download"
+and "Upload" written faintly in their top left corners.
 
 A graph spans a minute, or two update intervals where they are longer than
 half a minute, so that it always has a line. Each statistic is read at an
-interval of its own. Every graph is drawn across its whole width from the first
-reading: the processors and adapters at 0 until their use is known, and memory
-at what it first is. Between readings the graphs move along smoothly, 30 times
-a second by default, each line held at its last value out to the right edge
-until the next reading puts it right.
+interval of its own. Every graph is drawn across its whole width from the
+first reading: the processors and adapters at 0 until their use is known, and
+memory at what it first is. Between readings the graphs move along smoothly,
+30 times a second by default, each line held at its last value out to the
+right edge until the next reading puts it right.
 
 ### Where the statistics come from
 
@@ -109,11 +112,13 @@ built with). On macOS these are in the application's menu.
 
 **File > Settings** (Ctrl+, or ⌘, on macOS) has:
 
-- **General**: the update interval of each statistic and of the processes, in seconds to a tenth
-  of a second, from 0.1 to 3600 (2 by default); whether the processors have a line each or one for
-  all; how many frames a second the graphs are animated at between readings, from 1 to 60
-(30 by default), or Off to draw them at each reading alone; and the units: sizes in binary (KiB, MiB) or decimal (kB, MB) units,
-  and network speeds in bytes (MiB/s) or bits (Mib/s) a second.
+- **General**: the update interval of each statistic and of the processes,
+  in seconds to a tenth of a second, from 0.1 to 3600 (2 by default);
+  whether the processors have a line each or one for all; how many frames a
+  second the graphs are animated at between readings, from 1 to 60 (30 by
+  default), or Off to draw them at each reading alone; and the units: sizes
+  in binary (KiB, MiB) or decimal (kB, MB) units, and network speeds in
+  bytes (MiB/s) or bits (Mib/s) a second.
 - **Network**: every network adapter that has been seen, ticked if it is
   shown in the network graphs and legend. An adapter that is not ticked is
   still read, so its lines are whole when it is shown again, and it keeps its
@@ -244,10 +249,10 @@ runs `packaging/appimage.sh` on Ubuntu 24.04:
   (AppImage > Run workflow), which leaves the AppImage as an artifact of the
   run to download.
 
-It runs under both X11 and Wayland, and on GTK desktops takes its colours, light or
-dark, from the desktop through Qt's GTK theme plugin. It runs on any system
-with glibc 2.39 or later: rolling distributions such as CachyOS and Arch,
-Ubuntu 24.04, Debian 13, Fedora 40 and anything newer.
+It runs under both X11 and Wayland, and on GTK desktops takes its colours,
+light or dark, from the desktop through Qt's GTK theme plugin. It runs on any
+system with glibc 2.39 or later: rolling distributions such as CachyOS and
+Arch, Ubuntu 24.04, Debian 13, Fedora 40 and anything newer.
 
 `make appimage` runs the same script locally, but an AppImage built on a newer
 system only runs on systems at least as new.
@@ -289,7 +294,8 @@ It is built by a GitHub workflow (`.github/workflows/macos.yml`), which runs
 - `internal/settings` loads and saves the settings, and gives colours.
 - `internal/instance` keeps to one copy running, and hands over to it.
 - `internal/desktop` writes the Linux desktop entry and its icon.
-- `internal/appicon` draws the icon, a prism: a triangle divided into Solarized red, blue and green thirds.
+- `internal/appicon` draws the icon, a prism: a triangle divided into
+  Solarized red, blue and green thirds.
 - `internal/ui` is the window, the graphs and legends it paints, the table
   of processes, the settings dialog and the about box.
 - `.github/workflows` has `appimage.yml` and `macos.yml` (`v` tags, or by

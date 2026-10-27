@@ -1,4 +1,4 @@
-# Prism
+# <img src="internal/appicon/appicon.png" alt="" width="40" height="40"> Prism
 
 Graphs of the use of the processors, memory and swap, and network adapters,
 and a tree of the processes that are running.

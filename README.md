@@ -113,12 +113,13 @@ built with). On macOS these are in the application's menu.
 **File > Settings** (Ctrl+, or ⌘, on macOS) has:
 
 - **General**: the update interval of each statistic and of the processes,
-  in seconds to a tenth of a second, from 0.1 to 3600 (2 by default);
+  in seconds to a tenth of a second, from 0.1 to 3600 (by default 1 for the
+  processors and memory, and 2 for the network and processes);
   whether the processors have a line each or one for all; how many frames a
-  second the graphs are animated at between readings, from 1 to 60 (30 by
+  second the graphs are animated at between readings, from 1 to 60 (15 by
   default), or Off to draw them at each reading alone; and the units: sizes
-  in binary (KiB, MiB) or decimal (kB, MB) units, and network speeds in
-  bytes (MiB/s) or bits (Mib/s) a second.
+  in binary (KiB, MiB) or decimal (kB, MB, the default) units, and network
+  speeds in bytes (MB/s) or bits (Mb/s, the default) a second.
 - **Network**: every network adapter that has been seen, ticked if it is
   shown in the network graphs and legend. An adapter that is not ticked is
   still read, so its lines are whole when it is shown again, and it keeps its

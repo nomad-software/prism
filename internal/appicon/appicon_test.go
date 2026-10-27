@@ -84,15 +84,15 @@ func TestDraw(t *testing.T) {
 	if a := img.NRGBAAt(0, 0).A; a != 0 {
 		t.Errorf("a corner is %d opaque, want clear", a)
 	}
-	if a := img.NRGBAAt(32, 56).A; a != 0xff {
-		t.Errorf("the bottom third is %d opaque, want solid", a)
+	if a := img.NRGBAAt(20, 56).A; a != 0xff {
+		t.Errorf("the bottom left third is %d opaque, want solid", a)
 	}
 	withMargin := Draw(64, 0.25)
 	if a := withMargin.NRGBAAt(10, 46).A; a != 0 {
 		t.Errorf("the margin is %d opaque, want clear", a)
 	}
-	if a := withMargin.NRGBAAt(32, 44).A; a != 0xff {
-		t.Errorf("the bottom third within the margin is %d opaque, want solid", a)
+	if a := withMargin.NRGBAAt(24, 44).A; a != 0xff {
+		t.Errorf("the bottom left third within the margin is %d opaque, want solid", a)
 	}
 }
 
@@ -100,15 +100,15 @@ func TestPixel(t *testing.T) {
 	if c := pixel(0, 0, 10, 100); c != (color.NRGBA{}) {
 		t.Errorf("a pixel in the margin = %v, want clear", c)
 	}
-	if c := pixel(50, 85, 0, 100); c != color.NRGBAModel.Convert(thirds[1]) {
-		t.Errorf("a pixel of the bottom third = %v, want %v", c, thirds[1])
+	if c := pixel(30, 85, 0, 100); c != color.NRGBAModel.Convert(thirds[1]) {
+		t.Errorf("a pixel of the bottom left third = %v, want %v", c, thirds[1])
 	}
 	// A pixel on the bottom edge is part clear, and keeps its colour
 	// rather than being darkened.
 	y := int(corners[1].y * 100)
-	c := pixel(50, y, 0, 100)
+	c := pixel(30, y, 0, 100)
 	if c.A == 0 || c.A == 0xff || c.B != thirds[1].B {
-		t.Errorf("a pixel of the edge = %v, want part clear and the bottom third's colour", c)
+		t.Errorf("a pixel of the edge = %v, want part clear and the bottom left third's colour", c)
 	}
 }
 
@@ -120,10 +120,10 @@ func TestShade(t *testing.T) {
 		want color.RGBA
 	}{
 		{"outside", 0.05, 0.1, color.RGBA{}},
-		{"left third", 0.38, centre - 0.05, thirds[0]},
-		{"bottom third", 0.5, corners[1].y - 0.05, thirds[1]},
-		{"right third", 0.62, centre - 0.05, thirds[2]},
-		{"gap", 0.5, (centre + corners[0].y) / 2, color.RGBA{}},
+		{"top third", 0.5, centre - 0.1, thirds[0]},
+		{"bottom left third", 0.3, corners[1].y - 0.05, thirds[1]},
+		{"bottom right third", 0.7, corners[1].y - 0.05, thirds[2]},
+		{"gap", 0.5, (centre + corners[1].y) / 2, color.RGBA{}},
 	} {
 		if got := shade(c.x, c.y); got != c.want {
 			t.Errorf("%s: shade = %v, want %v", c.name, got, c.want)

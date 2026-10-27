@@ -23,16 +23,20 @@ const (
 // The intervals the statistics can be read at, in seconds, to a tenth of a
 // second.
 const (
-	MinInterval     = 0.1
-	MaxInterval     = 60 * 60
-	DefaultInterval = 2
+	MinInterval = 0.1
+	MaxInterval = 60 * 60
 )
+
+// DefaultIntervals are the intervals the statistics are read at unless set:
+// the processors and memory each second, the network adapters and the
+// processes every two.
+var DefaultIntervals = Intervals{CPU: 1, Memory: 1, Network: 2, Processes: 2}
 
 // The rates the graphs can be animated at, in frames a second, where 0 is
 // not animated.
 const (
 	MaxFrameRate     = 60
-	DefaultFrameRate = 30
+	DefaultFrameRate = 15
 )
 
 // The themes that can be chosen, besides the system's, which is "".
@@ -175,11 +179,11 @@ func Defaults() Settings {
 	return Settings{
 		Width:     defaultWidth,
 		Height:    defaultHeight,
-		Intervals: Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: DefaultInterval, Processes: DefaultInterval},
+		Intervals: DefaultIntervals,
 		CPUMode:   CPUCores,
 		FrameRate: DefaultFrameRate,
-		SizeUnits: SizeBinary,
-		RateUnits: RateBytes,
+		SizeUnits: SizeDecimal,
+		RateUnits: RateBits,
 		// The busiest processes are first.
 		ProcessSort:   SortCPU,
 		ProcessOrder:  OrderDescending,
@@ -271,12 +275,20 @@ func (s *Settings) normalise() {
 	if s.ProcessView != ViewList && s.ProcessView != ViewTree {
 		s.ProcessView = d.ProcessView
 	}
-	for _, i := range []*float64{&s.Intervals.CPU, &s.Intervals.Memory, &s.Intervals.Network, &s.Intervals.Processes} {
+	for _, i := range []struct {
+		value    *float64
+		fallback float64
+	}{
+		{&s.Intervals.CPU, d.Intervals.CPU},
+		{&s.Intervals.Memory, d.Intervals.Memory},
+		{&s.Intervals.Network, d.Intervals.Network},
+		{&s.Intervals.Processes, d.Intervals.Processes},
+	} {
 		// An interval is kept to a tenth of a second, as it is set; one out
 		// of range, or not a number, is the default.
-		*i = math.Round(*i*10) / 10
-		if !(*i >= MinInterval && *i <= MaxInterval) {
-			*i = DefaultInterval
+		*i.value = math.Round(*i.value*10) / 10
+		if !(*i.value >= MinInterval && *i.value <= MaxInterval) {
+			*i.value = i.fallback
 		}
 	}
 	s.Colours.normalise()

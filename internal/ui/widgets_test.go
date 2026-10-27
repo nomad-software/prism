@@ -260,7 +260,7 @@ func TestSettingsDialog(t *testing.T) {
 	current.ProcessSort, current.ProcessOrder = settings.SortMemory, settings.OrderAscending
 	current.ProcessFilter, current.ProcessView = settings.ProcessesUser, settings.ViewTree
 	current.Theme = settings.ThemeLight
-	current.SizeUnits = settings.SizeDecimal
+	current.SizeUnits, current.RateUnits = settings.SizeBinary, settings.RateBits
 	current.Colours.SetCore(1, "#111111")
 	current.Colours.Network = map[string]string{"eth0": "#222222", "wlan0": "#333333", "gone": "#444444"}
 	current.HiddenAdapters = []string{"gone", "wlan0"}
@@ -299,7 +299,7 @@ func TestSettingsDialog(t *testing.T) {
 			t.Errorf("frame rate box is %d wide, want the intervals' %d", w, want)
 		}
 		if currentData(d.cpuMode) != settings.CPUTotal || currentData(d.theme) != settings.ThemeLight ||
-			currentData(d.sizeUnits) != settings.SizeDecimal || currentData(d.rateUnits) != settings.RateBytes {
+			currentData(d.sizeUnits) != settings.SizeBinary || currentData(d.rateUnits) != settings.RateBits {
 			t.Error("the mode or theme is not shown")
 		}
 
@@ -315,7 +315,8 @@ func TestSettingsDialog(t *testing.T) {
 		d.frameRate.SetValue(45)
 		selectData(d.cpuMode, settings.CPUCores)
 		selectData(d.theme, "")
-		selectData(d.rateUnits, settings.RateBits)
+		selectData(d.sizeUnits, settings.SizeDecimal)
+		selectData(d.rateUnits, settings.RateBytes)
 		d.grid.set("#80102030")
 		d.cores[2].set("#555555")
 		d.adapters[0].set("#666666")
@@ -348,7 +349,7 @@ func TestSettingsDialog(t *testing.T) {
 	if got.CPUMode != settings.CPUCores || got.Theme != "" {
 		t.Errorf("mode %q, theme %q", got.CPUMode, got.Theme)
 	}
-	if got.SizeUnits != settings.SizeDecimal || got.RateUnits != settings.RateBits {
+	if got.SizeUnits != settings.SizeDecimal || got.RateUnits != settings.RateBytes {
 		t.Errorf("units %q, %q", got.SizeUnits, got.RateUnits)
 	}
 	c := got.Colours
@@ -456,7 +457,7 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 	mainthread.Wait(func() {
 		d := newSettingsDialog(nil, current, 1, []string{"eth0", "wlan0"}, func(s settings.Settings) { got = &s })
 		d.box.Button(qt.QDialogButtonBox__RestoreDefaults).Click()
-		if d.cpuInterval.Value() != settings.DefaultInterval || currentData(d.theme) != "" || d.grid.colour != settings.DefaultGrid ||
+		if d.cpuInterval.Value() != settings.DefaultIntervals.CPU || currentData(d.theme) != "" || d.grid.colour != settings.DefaultGrid ||
 			d.shown.Item(0, colAdapterAlias).Text() != "" {
 			t.Error("the defaults are not shown")
 		}
@@ -900,6 +901,44 @@ func TestLegendFaint(t *testing.T) {
 		}
 		if n := differ(images[false], images[true], valueX, 0, l.valueWidth, h); n < 20 {
 			t.Errorf("a faint value differs in %d pixels", n)
+		}
+	})
+}
+
+func TestLegendNamesShrink(t *testing.T) {
+	mainthread.Wait(func() {
+		l := newLegend(true)
+		defer l.Delete()
+		l.show([]entry{{"#ff0000", "Mozilla VPN", "↓ 0 b/s", nil}, {"#00ff00", "LAN", "↓ 0 b/s", nil}})
+		long := l.labelWidth
+		// Hiding the adapter with the longer name leaves no gap after the
+		// shorter one.
+		l.show([]entry{{"#00ff00", "LAN", "↓ 0 b/s", nil}})
+		if want := l.FontMetrics().HorizontalAdvance("LAN"); l.labelWidth != want || l.labelWidth >= long {
+			t.Errorf("labelWidth = %d, want %d", l.labelWidth, want)
+		}
+	})
+}
+
+func TestLegendFaintValueFollowsName(t *testing.T) {
+	mainthread.Wait(func() {
+		images := map[string]*qt.QImage{}
+		var l *legend
+		for _, value := range []string{"↓ 1.0 MB/s", ""} {
+			l = newLegend(true)
+			defer l.Delete()
+			l.Show()
+			l.Resize(1000, 10)
+			l.show([]entry{{"#ff0000", "LAN", value, nil}, {"#00ff00", "Mozilla VPN", "↓ 1.0 MB/s", nil}})
+			images[value] = render(l.QWidget)
+			defer images[value].Delete()
+		}
+		// LAN's value is drawn where a column as wide as the longer name
+		// would leave a gap.
+		x := swatchWidth + legendGap + l.FontMetrics().HorizontalAdvance("LAN") + legendGap
+		w := l.labelWidth + legendGap - (x - swatchWidth - legendGap)
+		if n := differ(images["↓ 1.0 MB/s"], images[""], x, 0, w, l.Height()); n == 0 {
+			t.Error("there is a gap between LAN and its value")
 		}
 	})
 }

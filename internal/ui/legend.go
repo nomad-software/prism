@@ -19,16 +19,17 @@ type entry struct {
 // legend names the lines of a graph and says what each shows now. Its
 // entries are laid out in columns of equal width, as many as fit, row by
 // row, and it is as tall as its rows. Each entry has its name and its value
-// side by side, with the values in a column of their own. The values are
-// at the right of their column, as the use of the processors is; or, in a
-// faint legend, fainter than the names and at the left of their column, as
-// the use of memory and the rates of the network adapters are.
+// side by side. The values are in a column of their own, at its right, as
+// the use of the processors is; or, in a faint legend, fainter than the
+// names and straight after each name, as the use of memory and the rates of
+// the network adapters are.
 type legend struct {
 	*qt.QWidget
 	entries []entry
 	faint   bool
-	// labelWidth and valueWidth are the widest names and values there have
-	// been, which the columns are kept as wide as, so that they do not move
+	// labelWidth is the widest name shown, which the names' column is as
+	// wide as. valueWidth is the widest value there has been, which the
+	// values' column is kept as wide as, so that the columns do not move
 	// about as the values change.
 	labelWidth, valueWidth int
 	// hovered is the index of the entry whose swatch the pointer is over,
@@ -86,6 +87,9 @@ func (l *legend) show(entries []entry) {
 	l.entries = entries
 	fm := l.FontMetrics()
 	defer runtime.KeepAlive(fm)
+	// The names change only when an adapter is hidden, shown or renamed, so
+	// their column fits those shown now, leaving no gap after the longest.
+	l.labelWidth = 0
 	for _, e := range entries {
 		l.labelWidth = max(l.labelWidth, fm.HorizontalAdvance(e.label))
 		l.valueWidth = max(l.valueWidth, fm.HorizontalAdvance(e.value))
@@ -228,12 +232,15 @@ func (l *legend) paint() {
 		y := float64(row * (height + rowGap))
 		p.SetPen(text)
 		drawText(p, x, y, float64(l.labelWidth), float64(lineHeight), int(qt.AlignLeft|qt.AlignVCenter), e.label)
-		align := qt.AlignRight
+		// The values of the processors are at the right of a column of
+		// their own, so that they line up; a faint value follows straight
+		// on from its own name.
+		vx, align := x+float64(l.labelWidth+legendGap), qt.AlignRight
 		if l.faint {
 			p.SetPen(faint)
-			align = qt.AlignLeft
+			vx, align = x+float64(fm.HorizontalAdvance(e.label)+legendGap), qt.AlignLeft
 		}
-		drawText(p, x+float64(l.labelWidth+legendGap), y, float64(l.valueWidth), float64(lineHeight), int(align|qt.AlignVCenter), e.value)
+		drawText(p, vx, y, float64(l.valueWidth), float64(lineHeight), int(align|qt.AlignVCenter), e.value)
 	}
 }
 

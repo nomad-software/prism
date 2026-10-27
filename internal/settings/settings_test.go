@@ -137,7 +137,7 @@ func TestLoadNormalises(t *testing.T) {
 	}
 	// An interval that is missing, as that of processes is in the settings of
 	// earlier versions, is the default.
-	if want := (Intervals{CPU: DefaultInterval, Memory: DefaultInterval, Network: 7.3, Processes: DefaultInterval}); s.Intervals != want {
+	if want := (Intervals{CPU: DefaultIntervals.CPU, Memory: DefaultIntervals.Memory, Network: 7.3, Processes: DefaultIntervals.Processes}); s.Intervals != want {
 		t.Errorf("Intervals = %+v, want %+v", s.Intervals, want)
 	}
 	if s.CPUMode != CPUCores {
@@ -396,9 +396,9 @@ func TestLoadUnits(t *testing.T) {
 		json       string
 		size, rate string
 	}{
-		{`{}`, SizeBinary, RateBytes},
-		{`{"sizeUnits": "decimal", "rateUnits": "bits"}`, SizeDecimal, RateBits},
-		{`{"sizeUnits": "huge", "rateUnits": "nibbles"}`, SizeBinary, RateBytes},
+		{`{}`, SizeDecimal, RateBits},
+		{`{"sizeUnits": "binary", "rateUnits": "bytes"}`, SizeBinary, RateBytes},
+		{`{"sizeUnits": "huge", "rateUnits": "nibbles"}`, SizeDecimal, RateBits},
 	} {
 		if err := os.WriteFile(path, []byte(c.json), 0o600); err != nil {
 			t.Fatal(err)
@@ -537,11 +537,11 @@ func TestLoadRoundsIntervals(t *testing.T) {
 		{`2.55`, 2.6},
 		{`3600.04`, 3600},
 		// Out of range, once rounded, or not a number, is the default.
-		{`0.04`, DefaultInterval},
-		{`3600.06`, DefaultInterval},
-		{`-1`, DefaultInterval},
-		{`0`, DefaultInterval},
-		{`"5"`, DefaultInterval},
+		{`0.04`, DefaultIntervals.CPU},
+		{`3600.06`, DefaultIntervals.CPU},
+		{`-1`, DefaultIntervals.CPU},
+		{`0`, DefaultIntervals.CPU},
+		{`"5"`, DefaultIntervals.CPU},
 	} {
 		data := fmt.Sprintf(`{"intervals": {"cpu": %s, "memory": 1, "network": 1}}`, c.json)
 		if err := os.WriteFile(path, []byte(data), 0o600); err != nil {

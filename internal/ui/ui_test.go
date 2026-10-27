@@ -108,12 +108,15 @@ var start = time.Unix(1_700_000_000, 0)
 func newTestWindow(t *testing.T, configure func(*settings.Settings)) *testWindow {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "settings.json")
+	// The tests read sizes and rates in binary units of bytes, which are
+	// not the defaults, so that their figures are round.
+	s := settings.Defaults()
+	s.SizeUnits, s.RateUnits = settings.SizeBinary, settings.RateBytes
 	if configure != nil {
-		s := settings.Defaults()
 		configure(&s)
-		if err := s.Save(path); err != nil {
-			t.Fatal(err)
-		}
+	}
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
 	}
 	tw := &testWindow{source: &fakeSource{}, path: path, clock: start}
 	mainthread.Wait(func() {
@@ -143,9 +146,12 @@ func TestNewWindow(t *testing.T) {
 		if title := tw.WindowTitle(); title != "Prism" {
 			t.Errorf("title = %q", title)
 		}
-		ms := int(settings.Duration(settings.DefaultInterval) / time.Millisecond)
-		for name, timer := range map[string]*qt.QTimer{"CPU": tw.cpu.timer, "memory": tw.memory.timer, "network": tw.network.timer, "processes": tw.processes.timer} {
-			if timer.Interval() != ms {
+		d := settings.DefaultIntervals
+		for name, timer := range map[string]struct {
+			*qt.QTimer
+			interval float64
+		}{"CPU": {tw.cpu.timer, d.CPU}, "memory": {tw.memory.timer, d.Memory}, "network": {tw.network.timer, d.Network}, "processes": {tw.processes.timer, d.Processes}} {
+			if ms := int(settings.Duration(timer.interval) / time.Millisecond); timer.Interval() != ms {
 				t.Errorf("%s timer interval = %d, want %d", name, timer.Interval(), ms)
 			}
 			if timer.IsActive() {
@@ -200,9 +206,9 @@ func TestStart(t *testing.T) {
 				}
 				timer.Stop()
 			}
-			// 30 frames a second.
-			if !tw.frames.IsActive() || tw.frames.Interval() != 33 {
-				t.Errorf("frames every %d ms, running %v, want 33", tw.frames.Interval(), tw.frames.IsActive())
+			// 15 frames a second.
+			if !tw.frames.IsActive() || tw.frames.Interval() != 67 {
+				t.Errorf("frames every %d ms, running %v, want 67", tw.frames.Interval(), tw.frames.IsActive())
 			}
 			tw.frames.Stop()
 		}()

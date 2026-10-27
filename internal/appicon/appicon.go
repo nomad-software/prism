@@ -1,6 +1,6 @@
 // Package appicon holds the program's icon, built into the binary so that the
 // program needs nothing beside it, and draws it: a prism, a triangle on a
-// clear background divided into thirds, red, green and blue. It has no
+// clear background divided into thirds, red, blue and green. It has no
 // dependency on the UI.
 package appicon
 
@@ -25,9 +25,10 @@ const Size = 256
 // empty, as Apple's grid has icons 824 of 1024 wide.
 const MacMargin = 100.0 / 1024
 
-// The colours of the thirds of the triangle, each that of the side it lies
-// along: the left, the bottom and the right. They are Solarized's red, blue
-// and green, as the graphs' default colours are Solarized's.
+// The colours of the thirds of the triangle, each that of the corner it lies
+// around: the top, the bottom left and the bottom right. They are
+// Solarized's red, blue and green, as the graphs' default colours are
+// Solarized's.
 var thirds = []color.RGBA{
 	{0xdc, 0x32, 0x2f, 0xff},
 	{0x26, 0x8b, 0xd2, 0xff},
@@ -38,8 +39,8 @@ var thirds = []color.RGBA{
 type point struct{ x, y float64 }
 
 // The triangle is equilateral, its sides side long and in the middle of the
-// icon, with its top corner first, then the bottom left and bottom right, so
-// that each corner and the next are the ends of the side of that third.
+// icon, with its top corner first, then the bottom left and bottom right, in
+// the order of the thirds.
 const side = 0.96
 
 var corners = func() [3]point {
@@ -115,21 +116,23 @@ func shade(x, y float64) color.RGBA {
 	if !inTriangle(p, corners) {
 		return color.RGBA{}
 	}
-	// The thirds are parted by lines from the middle of the triangle to each
-	// corner, with a thin clear gap along each.
+	// The thirds are parted by lines from the middle of the triangle to the
+	// middle of each side, with a thin clear gap along each. Each line is
+	// halfway between the two corners at the ends of its side, so a place
+	// is in the third of the corner nearest it.
 	const gap = 0.012
 	centre := point{(corners[0].x + corners[1].x + corners[2].x) / 3, (corners[0].y + corners[1].y + corners[2].y) / 3}
-	for _, c := range corners {
-		if distanceToSegment(p, centre, c) <= gap {
+	nearest, distance := 0, math.Inf(1)
+	for i, c := range corners {
+		next := corners[(i+1)%3]
+		if distanceToSegment(p, centre, point{(c.x + next.x) / 2, (c.y + next.y) / 2}) <= gap {
 			return color.RGBA{}
 		}
-	}
-	for i := range corners {
-		if inTriangle(p, [3]point{centre, corners[i], corners[(i+1)%3]}) {
-			return thirds[i]
+		if d := math.Hypot(p.x-c.x, p.y-c.y); d < distance {
+			nearest, distance = i, d
 		}
 	}
-	return color.RGBA{}
+	return thirds[nearest]
 }
 
 // inTriangle says whether a place is in the triangle with the corners, by

@@ -48,7 +48,9 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
   its fastest. The legend says, beside each adapter's name, how fast it is
   downloading (↓) and uploading (↑), with how much it has in all in brackets.
   Adapters can be hidden in the settings.
-- **Processes**: every process, with its PID, name, how busy it is (as top
+- **Processes**: every process, with its PID, name (in full, though Linux
+  keeps only the first 15 characters of it with the process's statistics),
+  how busy it is (as top
   counts it, a percentage of one processor, so more than 100% for one
   running on several), and how much memory it has ("—" for the kernel's own
   threads, which have none of their own to count). Click a heading to sort
@@ -86,15 +88,16 @@ half a minute, so that it always has a line. Each statistic is read at an
 interval of its own. Every graph is drawn across its whole width from the
 first reading: the processors and adapters at 0 until their use is known, and
 memory at what it first is. Between readings the graphs move along smoothly,
-30 times a second by default, each line held at its last value out to the
+15 times a second by default, each line held at its last value out to the
 right edge until the next reading puts it right.
 
 ### Where the statistics come from
 
 - **Linux**: `/proc/stat`, `/proc/meminfo`,
   `/sys/class/net/*/statistics/{rx,tx}_bytes`, and for each process
-  `/proc/<pid>/stat`, `/proc/<pid>/statm` and `/proc/<pid>/status`, and
-  nothing else.
+  `/proc/<pid>/stat`, `/proc/<pid>/statm` and `/proc/<pid>/status`, with
+  `/proc/<pid>/cmdline` for the full name of one whose name the kernel cuts
+  short at 15 characters, and nothing else.
 - **macOS**: the Mach kernel's processor and memory statistics
   (`host_processor_info`, `host_statistics64`), `sysctl` for the size of
   memory and the use of swap, and the 64 bit counters of the network

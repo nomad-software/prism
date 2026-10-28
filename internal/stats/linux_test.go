@@ -282,6 +282,30 @@ func TestParseProcessStat(t *testing.T) {
 	}
 }
 
+func TestFullName(t *testing.T) {
+	for _, c := range []struct{ name, cmdline, want string }{
+		{"gmenudbusmenupr", "/usr/bin/gmenudbusmenuproxy\x00", "gmenudbusmenuproxy"},
+		{"polkit-kde-auth", "/usr/lib/polkit-kde-authentication-agent-1\x00--flag\x00", "polkit-kde-authentication-agent-1"},
+		{"at-spi-bus-laun", "at-spi-bus-launcher\x00", "at-spi-bus-launcher"},
+		// A program that rewrote its arguments into one line.
+		{"systemd-userwor", "systemd-userwork: waiting...\x00\x00\x00", "systemd-userwork"},
+		{"a-long-name-of:", "a-long-name-of: rest\x00", "a-long-name-of:"},
+		// One that rewrote them with paths among its arguments.
+		{"chrome_crashpad", "/opt/google/chrome/chrome_crashpad_handler --database=/home/x/.config\x00", "chrome_crashpad_handler"},
+		// A path with spaces of its own.
+		{"a-program-with-", "/opt/My Apps/a-program-with-spaces\x00", "a-program-with-spaces"},
+		// A name exactly as long as the kernel keeps.
+		{"fifteen-letters", "/bin/fifteen-letters\x00", "fifteen-letters"},
+		// A thread of the kernel, or one that renamed itself.
+		{"kworker/u64:2-e", "", "kworker/u64:2-e"},
+		{"Isolated Web Co", "/usr/lib/firefox/firefox\x00-contentproc\x00", "Isolated Web Co"},
+	} {
+		if got := fullName(c.name, []byte(c.cmdline)); got != c.want {
+			t.Errorf("fullName(%q, %q) = %q, want %q", c.name, c.cmdline, got, c.want)
+		}
+	}
+}
+
 func TestParseStatusUID(t *testing.T) {
 	status := "Name:\tbash\nUmask:\t0022\nState:\tS (sleeping)\nUid:\t1000\t0\t1000\t1000\nGid:\t100\t100\t100\t100\n"
 	if uid, err := parseStatusUID([]byte(status)); err != nil || uid != 1000 {
@@ -330,13 +354,25 @@ func TestLinuxProcesses(t *testing.T) {
 		"proc/-4/stat":      "-4 (negative)" + fields,
 		"proc/-4/statm":     "100 10 0 0 0 0 0\n",
 		"proc/10/somewhere": "",
+		"proc/8/stat":       "8 (polkit-kde-auth)" + fields,
+		"proc/8/statm":      "100 10 0 0 0 0 0\n",
+		"proc/8/status":     "Uid:\t1000\t1000\t1000\t1000\n",
+		"proc/8/cmdline":    "/usr/lib/polkit-kde-authentication-agent-1\x00",
+		"proc/9/stat":       "9 (no-cmdline-file)" + fields,
+		"proc/9/statm":      "100 10 0 0 0 0 0\n",
+		"proc/9/status":     "Uid:\t1000\t1000\t1000\t1000\n",
 	})
 	l := Linux{Root: root}
 	got, err := l.Processes()
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Process{{PID: 1, PPID: 1, Name: "init", Start: 777, CPU: 2 * time.Second, Memory: 10 * uint64(os.Getpagesize())}}
+	memory := 10 * uint64(os.Getpagesize())
+	want := []Process{
+		{PID: 1, PPID: 1, Name: "init", Start: 777, CPU: 2 * time.Second, Memory: memory},
+		{PID: 8, PPID: 1, UID: 1000, Name: "polkit-kde-authentication-agent-1", Start: 777, CPU: 2 * time.Second, Memory: memory},
+		{PID: 9, PPID: 1, UID: 1000, Name: "no-cmdline-file", Start: 777, CPU: 2 * time.Second, Memory: memory},
+	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Processes = %+v, want %+v", got, want)
 	}

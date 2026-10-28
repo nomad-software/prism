@@ -70,8 +70,9 @@ func (l Linux) Network() (map[string]NetCounters, error) {
 const userHZ = 100
 
 // Processes reads /proc/<pid>/stat, /proc/<pid>/statm and /proc/<pid>/status
-// of every process. A process that cannot be read, as one that ended while the
-// others were being read, is left out.
+// of every process, and /proc/<pid>/cmdline of one whose name the kernel cut
+// short. A process that cannot be read, as one that ended while the others
+// were being read, is left out.
 func (l Linux) Processes() ([]Process, error) {
 	dir := filepath.Join(l.Root, "proc")
 	entries, err := os.ReadDir(dir)
@@ -108,6 +109,11 @@ func (l Linux) Processes() ([]Process, error) {
 		uid, err := parseStatusUID(data)
 		if err != nil {
 			continue
+		}
+		if len(p.Name) == commLength {
+			if data, err := os.ReadFile(filepath.Join(dir, e.Name(), "cmdline")); err == nil {
+				p.Name = fullName(p.Name, data)
+			}
 		}
 		p.PID, p.UID, p.Memory = pid, uid, resident*page
 		processes = append(processes, p)
@@ -164,6 +170,36 @@ func parseProcessStat(data []byte) (Process, error) {
 		Kernel: n[3]&pfKthread != 0,
 		PPID:   int(n[4]),
 	}, nil
+}
+
+// commLength is the longest name the kernel keeps of a process, in
+// /proc/<pid>/stat: TASK_COMM_LEN, 16, less its closing NUL. A longer one is
+// cut short to it.
+const commLength = 15
+
+// fullName returns the whole name of a process whose name the kernel cut
+// short, from its /proc/<pid>/cmdline: the file name of the program it ran,
+// its first argument, if that starts with the name the kernel kept. A program
+// that rewrote its arguments into one line has its name taken from before the
+// first space, if its path has none ("/opt/app/app --type=x /a/b"), and after
+// a status of its own is cut off ("sshd: user [priv]"), less a colon at its
+// end. If the first argument does not start with the name kept, as of a
+// thread of the kernel, which has none, or a program that renamed itself, the
+// name kept is returned.
+func fullName(name string, cmdline []byte) string {
+	first, _, _ := bytes.Cut(cmdline, []byte{0})
+	full := filepath.Base(string(first))
+	if !strings.HasPrefix(full, name) {
+		program, _, _ := strings.Cut(string(first), " ")
+		if full = filepath.Base(program); !strings.HasPrefix(full, name) {
+			return name
+		}
+	}
+	rest := full[len(name):]
+	if i := strings.IndexAny(rest, " \t"); i >= 0 {
+		rest = rest[:i]
+	}
+	return name + strings.TrimSuffix(rest, ":")
 }
 
 // parseStatusUID reads the real user ID of a process from its

@@ -180,7 +180,7 @@ func TestNewWindow(t *testing.T) {
 		if got := items(tw.file); !slices.Equal(got, []string{"&Settings…", "&Quit"}) {
 			t.Errorf("File menu = %q", got)
 		}
-		if got := items(tw.help); !slices.Equal(got, []string{"&About Prism"}) {
+		if got := items(tw.help); !slices.Equal(got, []string{"&About"}) {
 			t.Errorf("Help menu = %q", got)
 		}
 		if !tw.StatusBar().IsSizeGripEnabled() {
@@ -250,7 +250,7 @@ func menuAction(t *testing.T, tw *testWindow, text string) *qt.QAction {
 func TestMenuShortcuts(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
-		for text, want := range map[string]string{"&Settings…": "Ctrl+,", "&Quit": "Ctrl+Q", "&About Prism": "Ctrl+I"} {
+		for text, want := range map[string]string{"&Settings…": "Ctrl+,", "&Quit": "Ctrl+Q", "&About": "Ctrl+I"} {
 			// The shortcut is a copy, which its finalizer frees.
 			if got := menuAction(t, tw, text).Shortcut().ToString(); got != want {
 				t.Errorf("%s shortcut = %q, want %q", text, got, want)
@@ -262,7 +262,7 @@ func TestMenuShortcuts(t *testing.T) {
 func TestAboutAction(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	mainthread.Wait(func() {
-		menuAction(t, tw, "&About Prism").Trigger()
+		menuAction(t, tw, "&About").Trigger()
 		var about *qt.QWidget
 		for _, w := range qt.QApplication_TopLevelWidgets() {
 			if w.WindowTitle() == "About Prism" && w.IsVisible() {

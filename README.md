@@ -109,9 +109,9 @@ right edge until the next reading puts it right.
 
 ## Settings
 
-The menu bar has **File** (Settings, Quit with Ctrl+Q) and **Help** (About
-Prism with Ctrl+I: the version of Qt and the licences of what Prism is
-built with). On macOS these are in the application's menu.
+The menu bar has **File** (Settings, Quit with Ctrl+Q) and **Help** (About with
+Ctrl+I: the version of Qt and the licences of what Prism is built with).
+On macOS these are in the application's menu.
 
 **File > Settings** (Ctrl+, or ⌘, on macOS) has:
 

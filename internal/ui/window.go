@@ -241,7 +241,7 @@ func (w *Window) makeMenus() {
 	quit.OnTriggered(func() { w.Close() })
 
 	w.help = w.MenuBar().AddMenuWithTitle("&Help")
-	about := w.help.AddActionWithText("&About Prism")
+	about := w.help.AddActionWithText("&About")
 	about.SetMenuRole(qt.QAction__AboutRole)
 	shortcut = qt.NewQKeySequence2("Ctrl+I")
 	about.SetShortcut(shortcut)

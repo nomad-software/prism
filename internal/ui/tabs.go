@@ -52,6 +52,13 @@ func (w *Window) makeTabs(resources, processes *qt.QWidget) {
 	w.tabs.SetDocumentMode(true)
 	w.tabs.AddTab(resources, "Resources")
 	w.tabs.AddTab(processes, "Processes")
+	// The search has the focus whenever the processes are shown, so that
+	// typing narrows them at once.
+	w.tabs.OnCurrentChanged(func(index int) {
+		if index == tabProcesses {
+			w.processes.search.SetFocus()
+		}
+	})
 	w.drawTabIcons()
 	for i := range tabCount {
 		key := qt.NewQKeySequence2(fmt.Sprintf("Ctrl+%d", i+1))

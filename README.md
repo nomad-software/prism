@@ -59,17 +59,18 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
   largest PID, and the others share the rest of the width, the name half of
   it. Type in the search box above the table to narrow it, as you type, to
   the processes whose names (in any case) or PIDs hold what is typed; the
-  search is not kept for next time. Below the table, at the left, choose to
-  see the processes of people (user processes, the default), the system's
-  (those of root, of services and of the kernel) or all of them, and to see
-  them as a list or as a tree, each process under the one that started it,
-  whose branches fold and open with the arrows beside the names and stay as
-  they are left; these choices are kept for next time too. In a tree, a
-  process found by a search whose parent is not found is at the top. Choose
-  a process, then a signal (SIGKILL unless another is chosen), and **Send
-  Signal** sends it; the status bar says whether it was sent. A process that
-  has ended in the meantime is not sent it, even if its PID has been given
-  to another.
+  search is not kept for next time, and has the cursor whenever the tab is
+  shown, so you can start typing at once. Below the table, at the left,
+  choose to see the processes of people (user processes, the default), the
+  system's (those of root, of services and of the kernel) or all of them,
+  and to see them as a list or as a tree, each process under the one that
+  started it, whose branches fold and open with the arrows beside the names
+  and stay as they are left; these choices are kept for next time too. In a
+  tree, a process found by a search whose parent is not found is at the
+  top. Choose a process, then a signal (SIGKILL unless another is chosen),
+  and **Send Signal** sends it; the status bar says whether it was sent. A
+  process that has ended in the meantime is not sent it, even if its PID
+  has been given to another.
 
 A status bar along the bottom of the window has a handle in its corner to
 drag the window bigger or smaller by.

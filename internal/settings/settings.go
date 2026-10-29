@@ -70,6 +70,7 @@ const (
 	SortPID    = "pid"
 	SortName   = "name"
 	SortCPU    = "cpu"
+	SortCores  = "cores"
 	SortMemory = "memory"
 )
 
@@ -124,8 +125,9 @@ type Settings struct {
 	RateUnits string `json:"rateUnits"`
 
 	// ProcessSort is the column the processes are sorted by, SortPID,
-	// SortName, SortCPU or SortMemory, and ProcessOrder is OrderAscending
-	// or OrderDescending, as they were last sorted in the window.
+	// SortName, SortCPU, SortCores or SortMemory, and ProcessOrder is
+	// OrderAscending or OrderDescending, as they were last sorted in the
+	// window.
 	ProcessSort  string `json:"processSort"`
 	ProcessOrder string `json:"processOrder"`
 	// ProcessFilter is which processes are shown, ProcessesAll,
@@ -263,7 +265,7 @@ func (s *Settings) normalise() {
 	if s.RateUnits != RateBytes && s.RateUnits != RateBits {
 		s.RateUnits = d.RateUnits
 	}
-	if !slices.Contains([]string{SortPID, SortName, SortCPU, SortMemory}, s.ProcessSort) {
+	if !slices.Contains([]string{SortPID, SortName, SortCPU, SortCores, SortMemory}, s.ProcessSort) {
 		s.ProcessSort = d.ProcessSort
 	}
 	if s.ProcessOrder != OrderAscending && s.ProcessOrder != OrderDescending {

@@ -50,6 +50,9 @@ type Window struct {
 		// measured says whether the use of the processors is known, which
 		// it is from the second reading.
 		measured bool
+		// processors is how many processors were online at the last
+		// reading, which no process can use more of.
+		processors int
 	}
 	memory struct {
 		section
@@ -341,6 +344,10 @@ func (w *Window) sampleCPU() {
 	// is only known from the second.
 	for len(w.cpu.cores) < len(c.Cores) {
 		w.cpu.cores = append(w.cpu.cores, history.Series{})
+	}
+	if n := c.Processors(); n != w.cpu.processors {
+		w.cpu.processors = n
+		w.processes.nameProcessors(n)
 	}
 	all, cores, ok := w.cpu.usage.Update(c)
 	if ok {

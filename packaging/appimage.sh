@@ -3,9 +3,9 @@
 # AppImage: one file that runs on most Linux systems without installing
 # anything. The result is build/Prism-<version>-x86_64.AppImage.
 #
-# The GitHub workflow runs it on Ubuntu 24.04, with Ubuntu's Qt, as an
-# AppImage runs on systems as new as the one it was built on or newer, not
-# on older ones. It needs Go, a
+# It is meant to be run on an old distribution (the GitHub workflow uses
+# Ubuntu 22.04, with Qt's own build of Qt), as an AppImage runs on systems as
+# new as the one it was built on or newer, not on older ones. It needs Go, a
 # C++ compiler, pkg-config, the Qt 6 development files with qmake, curl and
 # file. The Qt that pkg-config finds is the one built with, and QMAKE, if
 # set, says which qmake belongs to it.
@@ -56,7 +56,8 @@ export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake)}"
 # into the AppImage with everything they use, and stop it being made if one
 # of them is broken. Qt's own are all named lib*.so, so where there are
 # others a copy of the folder with only Qt's is made, and the tool is given
-# a qmake which says that is where the plugins are.
+# a qmake which says that is where the plugins are. Qt's own build, as the
+# GitHub workflow uses, has no others.
 PLUGINS="$("$QMAKE" -query QT_INSTALL_PLUGINS)"
 if [ -n "$(find "$PLUGINS" -mindepth 2 -maxdepth 2 -name '*.so' ! -name 'lib*' | head -n 1)" ]; then
 	STAGE="$PWD/$BUILD/qt-plugins"

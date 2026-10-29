@@ -95,7 +95,7 @@ func TestTabs(t *testing.T) {
 		for col := range processColumns {
 			headings = append(headings, tw.processes.tree.HeaderItem().Text(col))
 		}
-		if !slices.Equal(headings, []string{"PID", "Name", "CPU", "Memory"}) {
+		if !slices.Equal(headings, []string{"PID", "Name", "CPU", "Cores Used", "Memory"}) {
 			t.Errorf("headings = %q", headings)
 		}
 		if tw.processes.signals.CurrentText() != "SIGKILL (9)" {
@@ -110,6 +110,8 @@ func TestTabs(t *testing.T) {
 func TestSampleProcesses(t *testing.T) {
 	tw := newTestWindow(t, showAll)
 	tw.source.set(func(f *fakeSource) {
+		// No process uses more than the two processors.
+		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 2}, Cores: []stats.CPUTimes{{Busy: 1}, {Busy: 1}}}
 		f.procs = []stats.Process{
 			{PID: 10, Name: "idle", Start: 1, CPU: time.Second, Memory: 1 << 20},
 			{PID: 20, Name: "busy", Start: 1, CPU: 4 * time.Second, Memory: 3 << 30},
@@ -118,7 +120,13 @@ func TestSampleProcesses(t *testing.T) {
 		}
 	})
 	mainthread.Wait(func() {
+		tw.sampleCPU()
 		tw.sampleProcesses()
+		// The heading of how busy they are says how many processors there
+		// are.
+		if got := tw.processes.tree.HeaderItem().Text(colProcessCPU); got != "CPU (2 cores)" {
+			t.Errorf("CPU heading = %q, want CPU (2 cores)", got)
+		}
 		// How busy they are is not known from one reading; they are listed
 		// by PID until it is.
 		if got := column(tw, colProcessPID); !slices.Equal(got, []string{"10", "20", "30", "35"}) {
@@ -126,6 +134,9 @@ func TestSampleProcesses(t *testing.T) {
 		}
 		if got := column(tw, colProcessCPU); !slices.Equal(got, []string{"—", "—", "—", "—"}) {
 			t.Errorf("CPU = %q", got)
+		}
+		if got := column(tw, colProcessCores); !slices.Equal(got, []string{"—", "—", "—", "—"}) {
+			t.Errorf("cores = %q", got)
 		}
 		if got := column(tw, colProcessMemory); !slices.Equal(got, []string{"1.0 MiB", "3.0 GiB", "—", "—"}) {
 			t.Errorf("memory = %q", got)
@@ -136,7 +147,7 @@ func TestSampleProcesses(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{
 			{PID: 10, Name: "idle", Start: 1, CPU: 1100 * time.Millisecond, Memory: 1 << 20},
-			{PID: 20, Name: "busy", Start: 1, CPU: 7 * time.Second, Memory: 3 << 30},
+			{PID: 20, Name: "busy", Start: 1, CPU: 8 * time.Second, Memory: 3 << 30},
 			{PID: 30, Name: "other user's", Start: 1, Restricted: true},
 			{PID: 40, Name: "new", Start: 1, CPU: time.Second},
 		}
@@ -147,14 +158,19 @@ func TestSampleProcesses(t *testing.T) {
 		if got := column(tw, colProcessName); !slices.Equal(got, []string{"busy", "idle", "other user's", "new"}) {
 			t.Errorf("names = %q", got)
 		}
-		if got := column(tw, colProcessCPU); !slices.Equal(got, []string{"150.0%", "5.0%", "—", "—"}) {
+		if got := column(tw, colProcessCPU); !slices.Equal(got, []string{"200.0%", "5.0%", "—", "—"}) {
 			t.Errorf("CPU = %q", got)
+		}
+		// The busy one kept both processors busy, and the idle one a
+		// twentieth of one.
+		if got := column(tw, colProcessCores); !slices.Equal(got, []string{"2.0", "0.1", "—", "—"}) {
+			t.Errorf("cores = %q", got)
 		}
 		// The PIDs and names, and their headings, are to the left, and the
 		// rest to the right.
 		for col, want := range map[int]qt.AlignmentFlag{
 			colProcessPID: qt.AlignLeft, colProcessName: qt.AlignLeft,
-			colProcessCPU: qt.AlignRight, colProcessMemory: qt.AlignRight,
+			colProcessCPU: qt.AlignRight, colProcessCores: qt.AlignRight, colProcessMemory: qt.AlignRight,
 		} {
 			if a := tw.processes.tree.TopLevelItem(0).TextAlignment(col); a&int(want) == 0 {
 				t.Errorf("column %d is aligned %#x", col, a)
@@ -231,6 +247,25 @@ func TestSortProcesses(t *testing.T) {
 	if got := pids(); !slices.Equal(got, []int{4, 2, 1, 3}) {
 		t.Errorf("ascending = %v", got)
 	}
+	// The cores used are sorted as how busy they were.
+	sortProcesses(list, colProcessCores, true)
+	if got := pids(); !slices.Equal(got, []int{1, 3, 2, 4}) {
+		t.Errorf("by cores = %v", got)
+	}
+}
+
+// TestCPUHeading checks that the heading of how busy processes are says how
+// many processors there are, once that is known.
+func TestCPUHeading(t *testing.T) {
+	tw := newTestWindow(t, showAll)
+	mainthread.Wait(func() {
+		for n, want := range map[int]string{0: "CPU", 1: "CPU (1 core)", 8: "CPU (8 cores)"} {
+			tw.processes.nameProcessors(n)
+			if got := tw.processes.tree.HeaderItem().Text(colProcessCPU); got != want {
+				t.Errorf("%d processors: heading = %q, want %q", n, got, want)
+			}
+		}
+	})
 }
 
 func TestChosenProcessKept(t *testing.T) {
@@ -338,7 +373,7 @@ func TestSortProcessesByClick(t *testing.T) {
 
 // TestProcessColumnWidths checks that the PIDs are first, as wide as the
 // largest of them, and that the other columns share the rest of the width of
-// the table as it changes: the name half, and the others a quarter each.
+// the table as it changes: the name two fifths, and the others a fifth each.
 func TestProcessColumnWidths(t *testing.T) {
 	tw := newTestWindow(t, showAll)
 	tw.source.set(func(f *fakeSource) {
@@ -356,11 +391,11 @@ func TestProcessColumnWidths(t *testing.T) {
 		if pid < fm.HorizontalAdvance("4194304") || pid > fm.HorizontalAdvance("4194304")+2*columnPadding {
 			t.Errorf("the PIDs are %d wide, not sized to 4194304", pid)
 		}
-		for _, width := range []int{900, 1400, 600} {
+		for _, width := range []int{900, 1400, 700} {
 			tw.Resize(width, 820)
 			qt.QCoreApplication_ProcessEvents()
-			quarter := (header.Width() - pid) / 4
-			want := [processColumns]int{pid, 2 * quarter, quarter, quarter}
+			fifth := (header.Width() - pid) / 5
+			want := [processColumns]int{pid, 2 * fifth, fifth, fifth, fifth}
 			sum := 0
 			for col := range processColumns {
 				got := header.SectionSize(col)

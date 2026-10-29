@@ -50,27 +50,28 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
   Adapters can be hidden in the settings.
 - **Processes**: every process, with its PID, name (in full, though Linux
   keeps only the first 15 characters of it with the process's statistics),
-  how busy it is (as top
-  counts it, a percentage of one processor, so more than 100% for one
-  running on several), and how much memory it has ("—" for the kernel's own
+  how busy it is (as top counts it, a percentage of one processor, so more
+  than 100% for one running on several; the heading says how many there are,
+  as "CPU (8 cores)"), how many processors' worth of time that is (Cores
+  Used, 2.5 for 250%), and how much memory it has ("—" for the kernel's own
   threads, which have none of their own to count). Click a heading to sort
   by it, and again to reverse it; it starts with the busiest first, and
   keeps the order chosen for next time. The PID column is as wide as the
-  largest PID, and the others share the rest of the width, the name half of
-  it. Type in the search box above the table to narrow it, as you type, to
-  the processes whose names (in any case) or PIDs hold what is typed; the
-  search is not kept for next time, and has the cursor whenever the tab is
-  shown, so you can start typing at once. Below the table, at the left,
-  choose to see the processes of people (user processes, the default), the
-  system's (those of root, of services and of the kernel) or all of them,
-  and to see them as a list or as a tree, each process under the one that
-  started it, whose branches fold and open with the arrows beside the names
-  and stay as they are left; these choices are kept for next time too. In a
-  tree, a process found by a search whose parent is not found is at the
+  largest PID, and the others share the rest of the width, the name two
+  fifths of it. Type in the search box above the table to narrow it, as you
+  type, to the processes whose names (in any case) or PIDs hold what is
+  typed; the search is not kept for next time, and has the cursor whenever
+  the tab is shown, so you can start typing at once. Below the table, at the
+  left, choose to see the processes of people (user processes, the default),
+  the system's (those of root, of services and of the kernel) or all of
+  them, and to see them as a list or as a tree, each process under the one
+  that started it, whose branches fold and open with the arrows beside the
+  names and stay as they are left; these choices are kept for next time too.
+  In a tree, a process found by a search whose parent is not found is at the
   top. Choose a process, then a signal (SIGKILL unless another is chosen),
   and **Send Signal** sends it; the status bar says whether it was sent. A
-  process that has ended in the meantime is not sent it, even if its PID
-  has been given to another.
+  process that has ended in the meantime is not sent it, even if its PID has
+  been given to another.
 
 A status bar along the bottom of the window has a handle in its corner to
 drag the window bigger or smaller by.
@@ -246,7 +247,7 @@ file with Qt inside it, which runs without installing anything. Make it
 executable and run it.
 
 It is built by a GitHub workflow (`.github/workflows/appimage.yml`), which
-runs `packaging/appimage.sh` on Ubuntu 24.04:
+runs `packaging/appimage.sh` on Ubuntu 22.04 with Qt's own build of Qt 6.9:
 
 - Pushing a tag starting with `v` builds it and attaches it to a release of
   that name: `git tag v1.0.0 && git push origin v1.0.0`.
@@ -255,9 +256,12 @@ runs `packaging/appimage.sh` on Ubuntu 24.04:
   run to download.
 
 It runs under both X11 and Wayland, and on GTK desktops takes its colours,
-light or dark, from the desktop through Qt's GTK theme plugin. It runs on any
-system with glibc 2.39 or later: rolling distributions such as CachyOS and
-Arch, Ubuntu 24.04, Debian 13, Fedora 40 and anything newer.
+light or dark, from the desktop through Qt's GTK theme plugin. The C library
+of the system (glibc) is not put in the AppImage, as it cannot be reliably:
+it has to match the system's graphics drivers. It is built on an old
+distribution instead, and runs on any with glibc 2.35 or later: Ubuntu 22.04,
+Debian 12, Fedora 36 and anything newer, or rolling distributions such as
+CachyOS and Arch.
 
 `make appimage` runs the same script locally, but an AppImage built on a newer
 system only runs on systems at least as new.

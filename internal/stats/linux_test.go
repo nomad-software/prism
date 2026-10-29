@@ -42,6 +42,14 @@ func TestCPUTimesTotal(t *testing.T) {
 	}
 }
 
+func TestCPUProcessors(t *testing.T) {
+	// A processor that is offline, a gap in the numbers, is not counted.
+	c := CPU{Cores: []CPUTimes{{Busy: 1}, {}, {Idle: 1}}}
+	if got := c.Processors(); got != 2 {
+		t.Errorf("Processors = %d, want 2", got)
+	}
+}
+
 func TestParseStat(t *testing.T) {
 	c, err := parseStat(strings.NewReader(stat))
 	if err != nil {

@@ -22,12 +22,13 @@ const (
 	colProcessPID = iota
 	colProcessName
 	colProcessCPU
+	colProcessCores
 	colProcessMemory
 	processColumns
 )
 
 // processHeadings are the headings of the columns of the processes.
-var processHeadings = [processColumns]string{"PID", "Name", "CPU", "Memory"}
+var processHeadings = [processColumns]string{"PID", "Name", "CPU", "Cores Used", "Memory"}
 
 // processSorts are the settings' names of the columns of the processes, which
 // they are sorted by.
@@ -35,12 +36,14 @@ var processSorts = [processColumns]string{
 	colProcessPID:    settings.SortPID,
 	colProcessName:   settings.SortName,
 	colProcessCPU:    settings.SortCPU,
+	colProcessCores:  settings.SortCores,
 	colProcessMemory: settings.SortMemory,
 }
 
 // processShares are the shares of the width of the tree of processes, beside
-// the PID, each other column has: the name half, and the others a quarter.
-var processShares = [processColumns]int{colProcessName: 2, colProcessCPU: 1, colProcessMemory: 1}
+// the PID, each other column has: the name two fifths, and the others a
+// fifth.
+var processShares = [processColumns]int{colProcessName: 2, colProcessCPU: 1, colProcessCores: 1, colProcessMemory: 1}
 
 // columnPadding is the room either side of the PIDs, and sortArrowRoom that
 // of the arrow beside the heading the tree is sorted by.
@@ -253,6 +256,20 @@ func (p *processes) fitColumns() {
 	}
 }
 
+// nameProcessors writes in the heading of the column of how busy each process
+// is how many processors there are, each of which is 100% of it: "CPU (8
+// cores)". It is "CPU" while that is not known.
+func (p *processes) nameProcessors(n int) {
+	heading := processHeadings[colProcessCPU]
+	switch {
+	case n == 1:
+		heading += " (1 core)"
+	case n > 1:
+		heading += fmt.Sprintf(" (%d cores)", n)
+	}
+	p.tree.HeaderItem().SetText(colProcessCPU, heading)
+}
+
 // sampleProcesses reads the processes, and lists them with how busy each was
 // since they were last read, which is known from a process's second reading.
 func (w *Window) sampleProcesses() {
@@ -261,7 +278,7 @@ func (w *Window) sampleProcesses() {
 	if err != nil {
 		return
 	}
-	w.processes.list = w.processes.usage.Update(w.now(), list)
+	w.processes.list = w.processes.usage.Update(w.now(), list, w.cpu.processors)
 	w.showProcesses()
 }
 
@@ -362,13 +379,15 @@ func (p *processes) fold(item *qt.QTreeWidgetItem, folded bool) {
 }
 
 // processCells writes what the tree lists of the process: its name, PID,
-// how busy it was ("—" while it is not known), and its memory, which is "—"
-// for a process the system does not let it be read of, and for a thread of
-// the kernel, which has none of its own.
+// how busy it was, and how many processors' worth of time that is ("—" while
+// it is not known), and its memory, which is "—" for a process the system
+// does not let it be read of, and for a thread of the kernel, which has none
+// of its own.
 func processCells(p usage.Process, u chart.Units) [processColumns]string {
-	cells := [processColumns]string{strconv.Itoa(p.PID), p.Name, "—", "—"}
+	cells := [processColumns]string{strconv.Itoa(p.PID), p.Name, "—", "—", "—"}
 	if p.Measured {
 		cells[colProcessCPU] = chart.FormatPercent(p.Busy)
+		cells[colProcessCores] = strconv.FormatFloat(p.Busy/100, 'f', 1, 64)
 	}
 	if !p.Restricted && !p.Kernel {
 		cells[colProcessMemory] = u.Size(float64(p.Memory))
@@ -391,7 +410,8 @@ func sortProcesses(list []usage.Process, column int, descending bool) {
 		switch column {
 		case colProcessName:
 			c = cmp.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name))
-		case colProcessCPU:
+		case colProcessCPU, colProcessCores:
+			// The cores used are how busy it was, in processors' worth.
 			c = cmp.Compare(known(a.Measured, a.Busy), known(b.Measured, b.Busy))
 		case colProcessMemory:
 			c = cmp.Compare(known(!a.Restricted && !a.Kernel, float64(a.Memory)), known(!b.Restricted && !b.Kernel, float64(b.Memory)))

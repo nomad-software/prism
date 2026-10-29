@@ -32,6 +32,18 @@ type CPU struct {
 	Cores []CPUTimes
 }
 
+// Processors returns how many processors are online: those that have spent
+// any time, as one that is offline, a gap in the numbers, has not.
+func (c CPU) Processors() int {
+	n := 0
+	for _, t := range c.Cores {
+		if t.Total() > 0 {
+			n++
+		}
+	}
+	return n
+}
+
 // Memory is how much memory and swap there is, and is in use, in bytes.
 type Memory struct {
 	Total, Used         uint64

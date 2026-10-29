@@ -96,7 +96,7 @@ type Process struct {
 	stats.Process
 	// Busy is the percentage of the time of one processor it spent
 	// running, as top counts it, which is more than 100 for one running on
-	// more than one at once.
+	// more than one at once, but no more than 100 for each there is.
 	Busy float64
 	// Measured says whether Busy is known, which it is from the process's
 	// second reading, where it is not restricted.
@@ -109,10 +109,11 @@ type Processes struct {
 	at   time.Time
 }
 
-// Update takes a reading made at the time, and returns each process in it
-// with how busy it was since the last. A process that was not in the last
-// reading, as none is in the first, is not measured until the next.
-func (p *Processes) Update(at time.Time, now []stats.Process) []Process {
+// Update takes a reading made at the time, when there were the processors
+// online, or 0 if that is not known, and returns each process in it with how
+// busy it was since the last. A process that was not in the last reading, as
+// none is in the first, is not measured until the next.
+func (p *Processes) Update(at time.Time, now []stats.Process, processors int) []Process {
 	seconds := at.Sub(p.at).Seconds()
 	last := make(map[stats.ProcessKey]time.Duration, len(now))
 	processes := make([]Process, len(now))
@@ -126,7 +127,13 @@ func (p *Processes) Update(at time.Time, now []stats.Process) []Process {
 		if before, ok := p.last[key]; ok && seconds > 0 {
 			processes[i].Measured = true
 			if s.CPU > before {
-				processes[i].Busy = 100 * (s.CPU - before).Seconds() / seconds
+				busy := 100 * (s.CPU - before).Seconds() / seconds
+				// The counters can say a little more than the processors
+				// had, at the edges of their ticks.
+				if processors > 0 {
+					busy = min(busy, 100*float64(processors))
+				}
+				processes[i].Busy = busy
 			}
 		}
 	}

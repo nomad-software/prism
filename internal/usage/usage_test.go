@@ -84,7 +84,7 @@ func TestNetwork(t *testing.T) {
 func TestProcesses(t *testing.T) {
 	var p Processes
 	at := time.Unix(1000, 0)
-	first := p.Update(at, []stats.Process{{PID: 1, Start: 5, CPU: time.Second}})
+	first := p.Update(at, []stats.Process{{PID: 1, Start: 5, CPU: time.Second}}, 4)
 	if len(first) != 1 || first[0].Measured || first[0].Busy != 0 || first[0].PID != 1 {
 		t.Errorf("first = %+v, want one not measured", first)
 	}
@@ -93,7 +93,7 @@ func TestProcesses(t *testing.T) {
 		// A process given the PID of one that ended is new.
 		{PID: 1, Start: 6, CPU: time.Second},
 		{PID: 2, Restricted: true},
-	})
+	}, 4)
 	want := []Process{
 		{Process: stats.Process{PID: 1, Start: 5, CPU: 4 * time.Second}, Busy: 150, Measured: true},
 		{Process: stats.Process{PID: 1, Start: 6, CPU: time.Second}},
@@ -104,12 +104,23 @@ func TestProcesses(t *testing.T) {
 	}
 	// Time that goes back, as it cannot, is 0; and no time passing measures
 	// nothing.
-	got = p.Update(at.Add(3*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: time.Second}})
+	got = p.Update(at.Add(3*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: time.Second}}, 4)
 	if !got[0].Measured || got[0].Busy != 0 {
 		t.Errorf("back = %+v", got[0])
 	}
-	got = p.Update(at.Add(3*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: 2 * time.Second}})
+	got = p.Update(at.Add(3*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: 2 * time.Second}}, 4)
 	if got[0].Measured {
 		t.Errorf("no time = %+v", got[0])
+	}
+	// More time than the processors had, as the counters can say at the
+	// edges of their ticks, is all of it, unless how many there are is not
+	// known.
+	got = p.Update(at.Add(4*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: 7 * time.Second}}, 4)
+	if got[0].Busy != 400 {
+		t.Errorf("more than all = %+v, want Busy 400", got[0])
+	}
+	got = p.Update(at.Add(5*time.Second), []stats.Process{{PID: 1, Start: 5, CPU: 12 * time.Second}}, 0)
+	if got[0].Busy != 500 {
+		t.Errorf("processors not known = %+v, want Busy 500", got[0])
 	}
 }

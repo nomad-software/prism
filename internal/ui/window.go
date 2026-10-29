@@ -7,7 +7,6 @@ package ui
 import (
 	"fmt"
 	"maps"
-	"math"
 	"os"
 	"slices"
 	"time"
@@ -69,12 +68,9 @@ type Window struct {
 		legend         *legend
 	}
 	processes processes
-	// frames draws the graphs again between readings, at the frame rate
-	// the settings choose, so that their lines move along smoothly.
+	// frames draws the graphs again between readings, as often as their
+	// lines move along by a pixel, so that they move smoothly.
 	frames *qt.QTimer
-	// started says that Start has begun reading the statistics, after
-	// which the graphs are animated.
-	started bool
 }
 
 // section is the part of the window of one statistic: its heading, where
@@ -173,8 +169,8 @@ func (w *Window) Start() {
 	for _, t := range []*qt.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer} {
 		t.Start2()
 	}
-	w.started = true
-	w.setFrameRate(w.config.FrameRate)
+	w.frames.SetInterval(w.frameInterval())
+	w.frames.Start2()
 }
 
 // Activate shows the window, raised and given the focus, as when the program is
@@ -200,27 +196,42 @@ func (w *Window) newTimer(interval float64, read func()) *qt.QTimer {
 	return t
 }
 
-// setFrameRate draws the graphs the number of times a second between
-// readings, or only at each reading where it is 0.
-func (w *Window) setFrameRate(fps int) {
-	if fps <= 0 {
-		w.frames.Stop()
-		return
-	}
-	if ms := int(math.Round(1000 / float64(fps))); w.frames.Interval() != ms {
-		w.frames.SetInterval(ms)
-	}
-	if !w.frames.IsActive() {
-		w.frames.Start2()
-	}
+// The time between frames is no less than minFrame, 60 frames a second, and
+// no more than maxFrame, so that a graph made wider or given a shorter span
+// soon moves as often as it then needs to.
+const (
+	minFrame = time.Second / 60
+	maxFrame = time.Second
+)
+
+// graphs returns the graphs of the window.
+func (w *Window) graphs() []*graph {
+	return []*graph{w.cpu.graph, w.memory.graph, w.network.received, w.network.sent}
 }
 
-// animate moves the graphs on to now. Their lines hold their newest values
-// to now until the next reading puts them right. A graph that is not shown is
-// not drawn.
+// frameInterval returns how often the graphs are moved along, in
+// milliseconds: as often as the fastest of their lines moves by a pixel.
+func (w *Window) frameInterval() int {
+	interval := maxFrame
+	for _, g := range w.graphs() {
+		interval = min(interval, g.pixelTime())
+	}
+	return int(max(interval, minFrame) / time.Millisecond)
+}
+
+// animate moves the graphs on to now, each drawn again if it is shown and its
+// lines have moved by a pixel. Their lines hold their newest values to now
+// until the next reading puts them right. Nothing is drawn while the window
+// is minimized.
 func (w *Window) animate() {
+	if ms := w.frameInterval(); w.frames.Interval() != ms {
+		w.frames.SetInterval(ms)
+	}
+	if w.IsMinimized() {
+		return
+	}
 	now := w.now()
-	for _, g := range []*graph{w.cpu.graph, w.memory.graph, w.network.received, w.network.sent} {
+	for _, g := range w.graphs() {
 		g.advance(now)
 	}
 }
@@ -624,10 +635,6 @@ func (w *Window) applySettings(s settings.Settings) {
 		if ms := int(settings.Duration(t.interval) / time.Millisecond); t.timer.Interval() != ms {
 			t.timer.SetInterval(ms)
 		}
-	}
-	// The frame rate is put into effect once the window has started.
-	if w.started {
-		w.setFrameRate(s.FrameRate)
 	}
 	w.showCPU()
 	w.showMemory()

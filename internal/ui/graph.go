@@ -2,7 +2,7 @@ package ui
 
 import (
 	"runtime"
-	"slices"
+	"strings"
 	"time"
 
 	qt "github.com/mappu/miqt/qt6"
@@ -38,6 +38,43 @@ type graph struct {
 	// title, where it is set, is written in the top left corner of the
 	// grid, saying what the graph is of, as the network graphs have.
 	title string
+	// drawn is the time that was at its right edge when it was last drawn.
+	drawn time.Time
+	// background is the grid, filled, with its labels and title, as last
+	// drawn, which is drawn from until what it shows, look, changes; plot
+	// is where the grid is in it.
+	background *qt.QPixmap
+	look       look
+	plot       chart.Rect
+	// curves are the lines made ready to draw in the rectangle curvesRect,
+	// as they were at the time curvesAt, which they are drawn from, moved
+	// along, until the next reading.
+	curves     []curve
+	curvesRect chart.Rect
+	curvesAt   time.Time
+}
+
+// look is what the background of a graph shows: its size, the scale of its
+// grid, its labels and title, and the colours and font they are drawn in.
+type look struct {
+	width, height int
+	ratio         float64
+	span          time.Duration
+	labels, title string
+	grid, font    string
+	base, text    uint
+}
+
+// curve is a line of a graph made ready to draw: the path through its
+// points, unless it has fewer than two, and its pen. A line that holds, and
+// has a point, has hold set, and is drawn on from where its newest point was,
+// last, of the time lastAt, to the right edge.
+type curve struct {
+	path   *qt.QPainterPath
+	pen    *qt.QPen
+	hold   bool
+	last   chart.XY
+	lastAt time.Time
 }
 
 // newGraph returns an empty graph.
@@ -53,14 +90,39 @@ func newGraph() *graph {
 // with the labels.
 func (g *graph) show(now time.Time, span time.Duration, top float64, labels []string, lines []line, grid string) {
 	g.now, g.span, g.top, g.labels, g.lines, g.grid = now, span, top, labels, lines, grid
+	g.forgetCurves()
 	g.Update()
 }
 
-// advance moves the right edge of the graph on to the time, and draws it
-// again, so that its lines move along between readings.
+// advance moves the right edge of the graph on to the time, so that its
+// lines move along between readings. It is drawn again only where it is
+// shown and they have moved by a pixel of the screen since it last was, as
+// drawing it more often would not move them.
 func (g *graph) advance(now time.Time) {
 	g.now = now
-	g.Update()
+	if g.IsVisible() && now.Sub(g.drawn) >= g.pixelTime() {
+		g.Update()
+	}
+}
+
+// pixelTime returns how long the lines of the graph take to move along by a
+// pixel of the screen, as near as the width of the graph, which is a little
+// more than that of its grid, says.
+func (g *graph) pixelTime() time.Duration {
+	pixels := float64(g.Width()) * g.DevicePixelRatioF()
+	return time.Duration(float64(g.span) / max(pixels, 1))
+}
+
+// forgetCurves lets the curves made of the lines go, for them to be made
+// again from the lines as they are now.
+func (g *graph) forgetCurves() {
+	for _, c := range g.curves {
+		if c.path != nil {
+			c.path.Delete()
+		}
+		c.pen.Delete()
+	}
+	g.curves = nil
 }
 
 // labelGap is the space between the grid of a graph and its labels, and
@@ -100,7 +162,8 @@ func plotRect(width, height int, labels []string, fm *qt.QFontMetrics) chart.Rec
 	}
 }
 
-// paint draws the graph.
+// paint draws the graph: the background, as it was drawn last unless what
+// it shows has changed, and the lines on it, moved along to now.
 func (g *graph) paint() {
 	p := qt.NewQPainter2(g.QPaintDevice)
 	defer p.Delete()
@@ -108,15 +171,59 @@ func (g *graph) paint() {
 
 	font := smallFont(g.QWidget)
 	defer font.Delete()
-	p.SetFont(font)
-	fm := qt.NewQFontMetrics(font)
-	defer fm.Delete()
-	r := plotRect(g.Width(), g.Height(), g.labels, fm)
-
 	palette := g.Palette()
 	defer runtime.KeepAlive(palette)
 	base := palette.ColorWithCr(qt.QPalette__Base)
 	text := palette.ColorWithCr(qt.QPalette__WindowText)
+	want := look{
+		width: g.Width(), height: g.Height(), ratio: g.DevicePixelRatioF(),
+		span: g.span, labels: strings.Join(g.labels, "\n"), title: g.title,
+		grid: g.grid, font: font.Key(), base: base.Rgba(), text: text.Rgba(),
+	}
+	if g.background == nil || want != g.look {
+		g.drawBackground(want, font, base, text)
+	}
+	p.DrawPixmap9(0, 0, g.background)
+
+	r := g.plot
+	if g.curves != nil && g.curvesRect != r {
+		g.forgetCurves()
+	}
+	if g.curves == nil {
+		g.makeCurves(r)
+	}
+	p.SetRenderHint(qt.QPainter__Antialiasing)
+	plot := qt.NewQRectF4(r.X, r.Y, r.W, r.H)
+	defer plot.Delete()
+	p.SetClipRect(plot)
+	for _, c := range g.curves {
+		g.drawCurve(p, c, r)
+	}
+	g.drawn = g.now
+}
+
+// drawBackground draws what the background shows into a pixmap of the size
+// of the graph: the grid, filled, the labels up its right side and along its
+// bottom, and the title in its top left corner.
+func (g *graph) drawBackground(l look, font *qt.QFont, base, text *qt.QColor) {
+	if g.background != nil {
+		g.background.Delete()
+	}
+	g.background = qt.NewQPixmap2(int(float64(l.width)*l.ratio+0.5), int(float64(l.height)*l.ratio+0.5))
+	g.background.SetDevicePixelRatio(l.ratio)
+	transparent := qt.NewQColor2(qt.Transparent)
+	defer transparent.Delete()
+	g.background.FillWithFillColor(transparent)
+	g.look = l
+
+	p := qt.NewQPainter2(g.background.QPaintDevice)
+	defer p.Delete()
+	defer p.End()
+	p.SetFont(font)
+	fm := qt.NewQFontMetrics(font)
+	defer fm.Delete()
+	r := plotRect(l.width, l.height, g.labels, fm)
+	g.plot = r
 	plot := qt.NewQRectF4(r.X, r.Y, r.W, r.H)
 	defer plot.Delete()
 	p.FillRect4(plot, base)
@@ -149,56 +256,56 @@ func (g *graph) paint() {
 		x := r.X + r.W*float64(i)/chart.Columns
 		drawText(p, x+3, r.Y+r.H+labelGap/2, r.W/chart.Columns, lineHeight, int(qt.AlignLeft|qt.AlignTop), label)
 	}
-	p.SetOpacity(1)
 
-	p.SetRenderHint(qt.QPainter__Antialiasing)
 	// The title is in the font of the labels, under the lines.
 	if g.title != "" {
-		p.SetPen(text)
+		p.SetRenderHint(qt.QPainter__Antialiasing)
 		p.SetOpacity(titleOpacity)
 		drawText(p, r.X+titleInset, r.Y+titleInset, max(r.W-2*titleInset, 0), lineHeight, int(qt.AlignLeft|qt.AlignTop), g.title)
-		p.SetOpacity(1)
-	}
-	p.SetClipRect(plot)
-	for _, l := range g.lines {
-		g.drawSeries(p, l, r)
 	}
 }
 
-// drawSeries draws a line of the graph in the rectangle of its grid, as a
-// curve through its points.
-func (g *graph) drawSeries(p *qt.QPainter, l line, r chart.Rect) {
-	points := l.points
-	if n := len(points); l.hold && n > 0 && g.now.After(points[n-1].T) {
-		// The points are the series', which are not to be changed.
-		points = append(slices.Clip(points), history.Point{T: g.now, V: points[n-1].V})
+// makeCurves makes the lines ready to draw in the rectangle of the grid, as
+// they are at the time the graph is at: each a curve through its points.
+func (g *graph) makeCurves(r chart.Rect) {
+	g.curves = make([]curve, 0, len(g.lines))
+	for _, l := range g.lines {
+		colour := qt.NewQColor6(l.colour)
+		c := curve{pen: qt.NewQPen3(colour)}
+		colour.Delete()
+		c.pen.SetWidthF(lineWidth)
+		placed := chart.Place(l.points, g.now, g.span, g.top, r)
+		if n := len(placed); l.hold && n > 0 {
+			c.hold, c.last, c.lastAt = true, placed[n-1], l.points[n-1].T
+		}
+		if len(placed) >= 2 {
+			c.path = qt.NewQPainterPath()
+			c.path.MoveTo2(placed[0].X, placed[0].Y)
+			for i := 1; i < len(placed); i++ {
+				c1, c2 := chart.Controls(placed[i-1], placed[i])
+				c.path.CubicTo2(c1.X, c1.Y, c2.X, c2.Y, placed[i].X, placed[i].Y)
+			}
+		}
+		g.curves = append(g.curves, c)
 	}
-	if len(points) < 2 {
-		return
-	}
-	colour := qt.NewQColor6(l.colour)
-	defer colour.Delete()
-	pen := qt.NewQPen3(colour)
-	defer pen.Delete()
-	pen.SetWidthF(lineWidth)
-	p.SetPenWithPen(pen)
-	p.SetBrushWithStyle(qt.NoBrush)
+	g.curvesRect, g.curvesAt = r, g.now
+}
 
-	placed := chart.Place(points, g.now, g.span, g.top, r)
-	path := qt.NewQPainterPath()
-	defer path.Delete()
-	start := qt.NewQPointF3(placed[0].X, placed[0].Y)
-	path.MoveTo(start)
-	start.Delete()
-	for i := 1; i < len(placed); i++ {
-		c1, c2 := chart.Controls(placed[i-1], placed[i])
-		a, b, end := qt.NewQPointF3(c1.X, c1.Y), qt.NewQPointF3(c2.X, c2.Y), qt.NewQPointF3(placed[i].X, placed[i].Y)
-		path.CubicTo(a, b, end)
-		a.Delete()
-		b.Delete()
-		end.Delete()
+// drawCurve draws a line of the graph in the rectangle of its grid, moved
+// along from where it was made ready to now. A line that holds is drawn on
+// from its newest point, unchanged, to the right edge.
+func (g *graph) drawCurve(p *qt.QPainter, c curve, r chart.Rect) {
+	dx := -g.now.Sub(g.curvesAt).Seconds() / g.span.Seconds() * r.W
+	p.SetPenWithPen(c.pen)
+	p.SetBrushWithStyle(qt.NoBrush)
+	if c.path != nil {
+		p.Translate2(dx, 0)
+		p.DrawPath(c.path)
+		p.Translate2(-dx, 0)
 	}
-	p.DrawPath(path)
+	if c.hold && g.now.After(c.lastAt) {
+		drawLine(p, c.last.X+dx, c.last.Y, r.X+r.W, c.last.Y)
+	}
 }
 
 // drawLine draws a straight line.

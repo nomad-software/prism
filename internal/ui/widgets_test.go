@@ -121,6 +121,94 @@ func TestGraphHold(t *testing.T) {
 	})
 }
 
+// TestGraphKept checks that a graph draws its background and makes its
+// curves again only when what they show changes, and not as it moves along.
+func TestGraphKept(t *testing.T) {
+	mainthread.Wait(func() {
+		g := newGraph()
+		defer g.Delete()
+		g.Resize(400, 160)
+		now := time.Unix(1_700_000_000, 0)
+		var s history.Series
+		s.Add(now.Add(-time.Minute), 20)
+		s.Add(now, 60)
+		lines := []line{{"#ff0000", s.Points(), true}}
+		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#0000ff")
+		img := render(g.QWidget)
+		img.Delete()
+		background, path := g.background, g.curves[0].path
+
+		// Moving along keeps both, and draws the line where it now is.
+		g.advance(now.Add(30 * time.Second))
+		img = render(g.QWidget)
+		if g.background != background || g.curves[0].path != path {
+			t.Error("moving along drew the background or made the curves again")
+		}
+		if !g.drawn.Equal(now.Add(30 * time.Second)) {
+			t.Errorf("drawn at %v, want the time moved to", g.drawn)
+		}
+		if n := countColour(img, "#ff0000"); n < 150 {
+			t.Errorf("the line moved along has %d pixels", n)
+		}
+		img.Delete()
+
+		// A reading makes the curves again, but keeps the background; a
+		// new colour of the grid draws it again.
+		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#0000ff")
+		render(g.QWidget).Delete()
+		if g.background != background || g.curves[0].path == path {
+			t.Error("a reading did not make the curves again, or drew the background again")
+		}
+		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#00ffff")
+		img = render(g.QWidget)
+		if g.background == background || countColour(img, "#00ffff") < 1000 {
+			t.Error("the background was not drawn again in the grid's new colour")
+		}
+		img.Delete()
+		// So does a new size, which makes the curves again to fit it.
+		background, path = g.background, g.curves[0].path
+		g.Resize(500, 200)
+		render(g.QWidget).Delete()
+		if g.background == background || g.curves[0].path == path {
+			t.Error("a new size did not draw the background and make the curves again")
+		}
+	})
+}
+
+// TestGraphAdvance checks that a graph that is shown is drawn again as it
+// moves along only once its lines have moved by a pixel, and one that is not
+// shown is not drawn.
+func TestGraphAdvance(t *testing.T) {
+	mainthread.Wait(func() {
+		g := newGraph()
+		defer g.Delete()
+		g.Resize(400, 160)
+		now := time.Unix(1_700_000_000, 0)
+		g.show(now, time.Minute, 100, chart.PercentLabels(), nil, "#0000ff")
+		g.advance(now.Add(time.Hour))
+		qt.QCoreApplication_ProcessEvents()
+		if !g.drawn.IsZero() {
+			t.Error("a graph that is not shown was drawn")
+		}
+		g.Show()
+		qt.QCoreApplication_ProcessEvents()
+		drawn := g.drawn
+		if drawn.IsZero() {
+			t.Fatal("the graph was not drawn when shown")
+		}
+		g.advance(drawn.Add(g.pixelTime() / 2))
+		qt.QCoreApplication_ProcessEvents()
+		if !g.drawn.Equal(drawn) {
+			t.Error("the graph was drawn again before its lines moved by a pixel")
+		}
+		g.advance(drawn.Add(g.pixelTime()))
+		qt.QCoreApplication_ProcessEvents()
+		if !g.drawn.Equal(drawn.Add(g.pixelTime())) {
+			t.Error("the graph was not drawn again once its lines moved by a pixel")
+		}
+	})
+}
+
 func TestPlotRect(t *testing.T) {
 	mainthread.Wait(func() {
 		font := qt.NewQFont()
@@ -256,7 +344,6 @@ func TestSettingsDialog(t *testing.T) {
 	current.Width = 1234
 	current.Intervals = settings.Intervals{CPU: 1, Memory: 5, Network: 3600, Processes: 0.5}
 	current.CPUMode = settings.CPUTotal
-	current.FrameRate = 0
 	current.ProcessSort, current.ProcessOrder = settings.SortMemory, settings.OrderAscending
 	current.ProcessFilter, current.ProcessView = settings.ProcessesUser, settings.ViewTree
 	current.Theme = settings.ThemeLight
@@ -287,16 +374,10 @@ func TestSettingsDialog(t *testing.T) {
 		if d.cpuInterval.Minimum() != 0.1 || d.cpuInterval.Maximum() != 3600 || d.cpuInterval.Decimals() != 1 {
 			t.Errorf("interval range = %v to %v, to %d places", d.cpuInterval.Minimum(), d.cpuInterval.Maximum(), d.cpuInterval.Decimals())
 		}
-		if d.frameRate.Value() != 0 || d.frameRate.Text() != "Off" || d.frameRate.Maximum() != settings.MaxFrameRate {
-			t.Errorf("frame rate = %q, up to %d", d.frameRate.Text(), d.frameRate.Maximum())
-		}
 		// It opens big enough for its tabs, so that their rows are not
 		// squashed.
 		if hint := d.SizeHint(); d.Width() < hint.Width() || d.Height() < hint.Height() {
 			t.Errorf("the dialog is %dx%d, smaller than its %dx%d", d.Width(), d.Height(), hint.Width(), hint.Height())
-		}
-		if w, want := d.frameRate.MinimumWidth(), d.cpuInterval.SizeHint().Width(); w != want {
-			t.Errorf("frame rate box is %d wide, want the intervals' %d", w, want)
 		}
 		if currentData(d.cpuMode) != settings.CPUTotal || currentData(d.theme) != settings.ThemeLight ||
 			currentData(d.sizeUnits) != settings.SizeBinary || currentData(d.rateUnits) != settings.RateBits {
@@ -312,7 +393,6 @@ func TestSettingsDialog(t *testing.T) {
 
 		d.networkInterval.SetValue(7)
 		d.processesInterval.SetValue(12.5)
-		d.frameRate.SetValue(45)
 		selectData(d.cpuMode, settings.CPUCores)
 		selectData(d.theme, "")
 		selectData(d.sizeUnits, settings.SizeDecimal)
@@ -342,9 +422,6 @@ func TestSettingsDialog(t *testing.T) {
 	if got.ProcessSort != settings.SortMemory || got.ProcessOrder != settings.OrderAscending ||
 		got.ProcessFilter != settings.ProcessesUser || got.ProcessView != settings.ViewTree {
 		t.Errorf("processes %q, %q, %q, %q, want them kept", got.ProcessSort, got.ProcessOrder, got.ProcessFilter, got.ProcessView)
-	}
-	if got.FrameRate != 45 {
-		t.Errorf("FrameRate = %d", got.FrameRate)
 	}
 	if got.CPUMode != settings.CPUCores || got.Theme != "" {
 		t.Errorf("mode %q, theme %q", got.CPUMode, got.Theme)

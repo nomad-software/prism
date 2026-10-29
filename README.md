@@ -15,15 +15,17 @@ It is written in Go with Qt 6, through the
   shortcut away (Ctrl+2), to find what is busy and stop it.
 - **It answers "what is using my machine?"** Sort the processes by how busy
   they are or how much memory they have, search for them by name or PID,
-  see them as a tree to find what
-  started what, fold away what does not matter, and send the one at fault a
-  signal: SIGKILL, SIGTERM, or another, to end it, stop it or go on.
+  see them as a tree to find what started what, fold away what does not
+  matter, and send the one at fault a signal: SIGKILL, SIGTERM, or another,
+  to end it, stop it or go on.
 - **It asks for nothing.** No root, no daemon, no service, no account and
   nothing sent anywhere: it only reads what the kernel already says, in
   `/proc` and `/sys` on Linux and through the system's own calls on macOS.
 - **It is light.** One program, one window, and one copy running at a time;
   each statistic is read at an interval of its own, from a tenth of a second
-  to an hour, so it costs as little as wanted.
+  to an hour, so it costs as little as wanted; and the graphs are drawn only
+  as often as their lines move by a pixel, and not at all while they are
+  out of sight.
 - **It looks right on the desktop.** A native Qt program that follows the
   desktop's light or dark theme, or one of its own, with colours that read
   well on either, every one of which can be chosen. It remembers its size,
@@ -90,8 +92,13 @@ half a minute, so that it always has a line. Each statistic is read at an
 interval of its own. Every graph is drawn across its whole width from the
 first reading: the processors and adapters at 0 until their use is known, and
 memory at what it first is. Between readings the graphs move along smoothly,
-15 times a second by default, each line held at its last value out to the
-right edge until the next reading puts it right.
+each line held at its last value out to the right edge until the next
+reading puts it right. They are drawn again only as often as their lines
+move by a pixel (at most 60 times a second), so a narrow window or a long
+interval draws them less often, and not at all while they are not shown:
+on the Processes tab or with the window minimized. The grid and its labels
+are drawn once, and again only when the size, scale, theme or colours
+change.
 
 ### Where the statistics come from
 
@@ -120,11 +127,9 @@ On macOS these are in the application's menu.
 - **General**: the update interval of each statistic and of the processes,
   in seconds to a tenth of a second, from 0.1 to 3600 (by default 1 for the
   processors and memory, and 2 for the network and processes);
-  whether the processors have a line each or one for all; how many frames a
-  second the graphs are animated at between readings, from 1 to 60 (15 by
-  default), or Off to draw them at each reading alone; and the units: sizes
-  in binary (KiB, MiB) or decimal (kB, MB, the default) units, and network
-  speeds in bytes (MB/s) or bits (Mb/s, the default) a second.
+  whether the processors have a line each or one for all; and the units:
+  sizes in binary (KiB, MiB) or decimal (kB, MB, the default) units, and
+  network speeds in bytes (MB/s) or bits (Mb/s, the default) a second.
 - **Network**: every network adapter that has been seen, ticked if it is
   shown in the network graphs and legend. An adapter that is not ticked is
   still read, so its lines are whole when it is shown again, and it keeps its

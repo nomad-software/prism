@@ -206,9 +206,9 @@ func TestStart(t *testing.T) {
 				}
 				timer.Stop()
 			}
-			// 15 frames a second.
-			if !tw.frames.IsActive() || tw.frames.Interval() != 67 {
-				t.Errorf("frames every %d ms, running %v, want 67", tw.frames.Interval(), tw.frames.IsActive())
+			// As often as the lines move by a pixel.
+			if !tw.frames.IsActive() || tw.frames.Interval() != tw.frameInterval() {
+				t.Errorf("frames every %d ms, running %v, want %d", tw.frames.Interval(), tw.frames.IsActive(), tw.frameInterval())
 			}
 			tw.frames.Stop()
 		}()
@@ -626,7 +626,7 @@ func TestApplySettings(t *testing.T) {
 		s.Colours.Memory = "#010203"
 		tw.applySettings(s)
 
-		// The graphs are not animated before Start, whatever the settings.
+		// The graphs are not animated before Start.
 		if tw.frames.IsActive() {
 			t.Error("the graphs are animated before Start")
 		}
@@ -654,7 +654,7 @@ func TestApplySettings(t *testing.T) {
 	}
 }
 
-func TestFrameRate(t *testing.T) {
+func TestAnimation(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	tw.source.set(func(f *fakeSource) {
 		f.memory = stats.Memory{Total: 100, Used: 10}
@@ -667,16 +667,36 @@ func TestFrameRate(t *testing.T) {
 				timer.Stop()
 			}
 		}()
-		s := tw.config
-		s.FrameRate = 60
-		tw.applySettings(s)
-		if !tw.frames.IsActive() || tw.frames.Interval() != 17 {
-			t.Errorf("frames every %d ms, running %v, want 17", tw.frames.Interval(), tw.frames.IsActive())
+		// A graph's lines move by a pixel in the time it spans over its
+		// width in pixels, and the frames come as often as the fastest
+		// moves.
+		g := tw.cpu.graph
+		g.Resize(600, 200)
+		if want := time.Minute / time.Duration(600*g.DevicePixelRatioF()); g.pixelTime() != want {
+			t.Errorf("pixel time = %v, want %v", g.pixelTime(), want)
 		}
-		s.FrameRate = 0
-		tw.applySettings(s)
-		if tw.frames.IsActive() {
-			t.Error("the graphs are animated at a frame rate of 0")
+		fastest := maxFrame
+		for _, g := range tw.graphs() {
+			fastest = min(fastest, g.pixelTime())
+		}
+		tw.animate()
+		if want := int(max(fastest, minFrame) / time.Millisecond); tw.frames.Interval() != want {
+			t.Errorf("frames every %d ms, want %d", tw.frames.Interval(), want)
+		}
+		// A graph so wide that its lines move faster than 60 frames a
+		// second could show is drawn no more often than that, and one so
+		// narrow that they hardly move is still moved each second.
+		g.Resize(100_000, 200)
+		tw.animate()
+		if want := int(minFrame / time.Millisecond); tw.frames.Interval() != want {
+			t.Errorf("frames every %d ms of a wide graph, want %d", tw.frames.Interval(), want)
+		}
+		for _, g := range tw.graphs() {
+			g.Resize(1, 200)
+		}
+		tw.animate()
+		if want := int(maxFrame / time.Millisecond); tw.frames.Interval() != want {
+			t.Errorf("frames every %d ms of narrow graphs, want %d", tw.frames.Interval(), want)
 		}
 
 		// A frame moves every graph on to now, and their lines hold. The

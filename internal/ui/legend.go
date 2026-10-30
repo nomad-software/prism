@@ -103,9 +103,9 @@ func (l *legend) entryWidth() int {
 	return swatchWidth + legendGap + l.labelWidth + legendGap + l.valueWidth
 }
 
-// entryHeight is how tall each entry is: as tall as its swatch, or as its
+// entryHeight is how tall each entry of a legend is: as tall as its swatch, or as its
 // line of text.
-func (l *legend) entryHeight(lineHeight int) int {
+func entryHeight(lineHeight int) int {
 	return max(swatchHeight, lineHeight)
 }
 
@@ -122,7 +122,7 @@ func (l *legend) height() int {
 	}
 	fm := l.FontMetrics()
 	defer runtime.KeepAlive(fm)
-	return g.Rows*l.entryHeight(fm.Height()) + (g.Rows-1)*rowGap
+	return g.Rows*entryHeight(fm.Height()) + (g.Rows-1)*rowGap
 }
 
 // fit makes the legend as tall as its rows are at its width.
@@ -137,7 +137,7 @@ func (l *legend) fit() {
 func (l *legend) swatchPlace(i int, g chart.Grid, lineHeight int) (x, y float64) {
 	column, row := g.Cell(i)
 	x = float64(column * (l.entryWidth() + columnGap))
-	y = float64(row*(l.entryHeight(lineHeight)+rowGap)) + float64(max(lineHeight-swatchHeight, 0))/2
+	y = float64(row*(entryHeight(lineHeight)+rowGap)) + float64(max(lineHeight-swatchHeight, 0))/2
 	return x, y
 }
 
@@ -209,7 +209,7 @@ func (l *legend) paint() {
 	fm := l.FontMetrics()
 	defer runtime.KeepAlive(fm)
 	lineHeight := fm.Height()
-	height := l.entryHeight(lineHeight)
+	height := entryHeight(lineHeight)
 	g := l.grid()
 
 	palette := l.Palette()

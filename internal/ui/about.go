@@ -2,6 +2,9 @@ package ui
 
 import (
 	"runtime"
+	"runtime/debug"
+	"strconv"
+	"strings"
 
 	qt "github.com/mappu/miqt/qt6"
 )
@@ -13,14 +16,72 @@ const aboutWidth = 640
 // aboutIconSize is the size of the program's icon in the about box.
 const aboutIconSize = 96
 
+// appVersion returns the version of the program, which Go records from git
+// when it is built, as plain major.minor.patch.
+func appVersion() string {
+	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" && info.Main.Version != "(devel)" {
+		return plainVersion(info.Main.Version)
+	}
+	return "dev"
+}
+
+// plainVersion returns the release a version recorded by Go is, or follows.
+// Between tags Go records a version made from the commit, whose patch is one
+// more than the tag before it, as v1.2.4-0.20261027184954-00c19a9187bb is
+// after v1.2.3.
+func plainVersion(version string) string {
+	version, _, _ = strings.Cut(version, "+")
+	version, pre, _ := strings.Cut(version, "-")
+	if !strings.HasPrefix(pre, "0.") {
+		return version
+	}
+	i := strings.LastIndex(version, ".") + 1
+	patch, err := strconv.Atoi(version[i:])
+	if err != nil || patch == 0 {
+		return version
+	}
+	return version[:i] + strconv.Itoa(patch-1)
+}
+
 // aboutText returns what the about box says of the program.
 func aboutText() string {
-	return "<h2>Prism</h2>" +
-		"<p>Graphs of the use of the processors, memory and swap, and network adapters, " +
+	return "<p>Graphs of the use of the processors, memory and swap, and network adapters, " +
 		"and a tree of the processes that are running.</p>" +
 		"<p>Copyright © 2026 Gary Willoughby. Released under the " +
 		"<a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU General Public License " +
 		"version 3</a>.</p>"
+}
+
+// newAboutTitle returns the name of the program with its version to the
+// right of it, smaller and half transparent, on one baseline, and the label
+// of the version.
+func newAboutTitle() (*qt.QHBoxLayout, *qt.QLabel) {
+	name := qt.NewQLabel3("Prism")
+	large := qt.NewQFont5(name.Font())
+	defer large.Delete()
+	large.SetBold(true)
+	large.SetPointSizeF(large.PointSizeF() * 1.5)
+	name.SetFont(large)
+
+	version := qt.NewQLabel3(appVersion())
+	version.SetTextFormat(qt.PlainText)
+	small := qt.NewQFont5(version.Font())
+	defer small.Delete()
+	small.SetPointSizeF(small.PointSizeF() * 0.8)
+	version.SetFont(small)
+	nameMetrics, versionMetrics := name.FontMetrics(), version.FontMetrics()
+	defer runtime.KeepAlive(nameMetrics)
+	defer runtime.KeepAlive(versionMetrics)
+	version.SetContentsMargins(0, 0, 0, nameMetrics.Descent()-versionMetrics.Descent())
+	faded := qt.NewQGraphicsOpacityEffect()
+	faded.SetOpacity(0.5)
+	version.SetGraphicsEffect(faded.QGraphicsEffect)
+
+	title := qt.NewQHBoxLayout2()
+	title.AddWidget3(name.QWidget, 0, qt.AlignBottom)
+	title.AddWidget3(version.QWidget, 0, qt.AlignBottom)
+	title.AddStretch()
+	return title, version
 }
 
 // licenceText returns the notices of the licences of what the program is
@@ -43,11 +104,17 @@ func licenceText() string {
 		"by Ethan Schoonover, used under the MIT licence.</p>"
 }
 
-// newAboutDialog returns the about box: the program's icon beside what it
-// is, and the notices of the licences beneath in a frame of the style's own,
-// in the colours of the theme.
-func newAboutDialog(parent *qt.QWidget) *qt.QDialog {
-	d := qt.NewQDialog(parent)
+// aboutDialog is the about box: the program's icon beside what it is, and
+// the notices of the licences beneath in a frame of the style's own, in the
+// colours of the theme.
+type aboutDialog struct {
+	*qt.QDialog
+	// version is the label of the version of the program.
+	version *qt.QLabel
+}
+
+func newAboutDialog(parent *qt.QWidget) *aboutDialog {
+	d := &aboutDialog{QDialog: qt.NewQDialog(parent)}
 	d.SetWindowTitle("About Prism")
 	d.SetMinimumWidth(aboutWidth)
 
@@ -59,16 +126,24 @@ func newAboutDialog(parent *qt.QWidget) *qt.QDialog {
 	runtime.KeepAlive(pixmap)
 	ic.SetAlignment(qt.AlignTop)
 
-	about := newRichLabel(aboutText())
+	title, version := newAboutTitle()
+	d.version = version
+
+	about := qt.NewQVBoxLayout2()
+	about.SetSpacing(12)
+	about.AddLayout(title.QLayout)
+	about.AddWidget(newRichLabel(aboutText()).QWidget)
+	about.AddStretch()
 
 	top := qt.NewQHBoxLayout2()
 	top.SetSpacing(20)
 	top.AddWidget(ic.QWidget)
-	top.AddWidget2(about.QWidget, 1)
+	top.AddLayout2(about.QLayout, 1)
 
 	// The notices are smaller than the rest, as on a label of the style.
 	licences := newRichLabel(licenceText())
-	font := licences.Font()
+	font := qt.NewQFont5(licences.Font())
+	defer font.Delete()
 	font.SetPointSizeF(font.PointSizeF() * 0.9)
 	licences.SetFont(font)
 
@@ -89,7 +164,7 @@ func newAboutDialog(parent *qt.QWidget) *qt.QDialog {
 	layout.AddWidget(notices.QWidget)
 	layout.AddWidget(buttons.QWidget)
 
-	fitDialog(d, aboutWidth)
+	fitDialog(d.QDialog, aboutWidth)
 	return d
 }
 
@@ -120,12 +195,11 @@ func fitDialog(d *qt.QDialog, width int) {
 
 // showAbout shows the about box, without waiting for it, and deletes it once
 // it is closed.
-func showAbout(parent *qt.QWidget) *qt.QDialog {
+func showAbout(parent *qt.QWidget) {
 	d := newAboutDialog(parent)
 	// A dialog is not destroyed by being closed.
 	d.OnFinished(func(int) { d.DeleteLater() })
 	d.Open()
-	return d
 }
 
 // qtVersion returns the version of Qt the program runs with.

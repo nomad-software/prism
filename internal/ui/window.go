@@ -114,9 +114,7 @@ func NewWindow(path string, source stats.Source) *Window {
 	w.Resize(w.config.Width, w.config.Height)
 	w.makeMenus()
 
-	resources := qt.NewQWidget2()
-	layout := qt.NewQVBoxLayout(resources)
-	layout.SetContentsMargins(32, 12, 32, 32)
+	resources, layout := newTabPage()
 	layout.SetSpacing(18)
 	w.makeCPU()
 	w.makeMemory()
@@ -124,9 +122,7 @@ func NewWindow(path string, source stats.Source) *Window {
 	layout.AddWidget2(w.cpu.QWidget, 1)
 	layout.AddWidget2(w.memory.QWidget, 1)
 	layout.AddWidget2(w.network.QWidget, 1)
-	processes := qt.NewQWidget2()
-	layout = qt.NewQVBoxLayout(processes)
-	layout.SetContentsMargins(32, 12, 32, 32)
+	processes, layout := newTabPage()
 	w.makeProcesses()
 	layout.AddWidget(w.processes.QWidget)
 	w.makeTabs(resources, processes)
@@ -149,6 +145,15 @@ func NewWindow(path string, source stats.Source) *Window {
 		super(event)
 	})
 	return w
+}
+
+// newTabPage returns the page of a tab of the window, and its layout, with the
+// margins every page has.
+func newTabPage() (*qt.QWidget, *qt.QVBoxLayout) {
+	page := qt.NewQWidget2()
+	layout := qt.NewQVBoxLayout(page)
+	layout.SetContentsMargins(32, 12, 32, 32)
+	return page, layout
 }
 
 // Start shows the window, takes the first reading of each statistic and of
@@ -191,9 +196,15 @@ func (w *Window) Activate(token string) {
 // in seconds.
 func (w *Window) newTimer(interval float64, read func()) *qt.QTimer {
 	t := qt.NewQTimer2(w.QObject)
-	t.SetInterval(int(settings.Duration(interval) / time.Millisecond))
+	t.SetInterval(timerInterval(interval))
 	t.OnTimeout(read)
 	return t
+}
+
+// timerInterval returns the interval, in seconds, as a timer has it, in
+// milliseconds.
+func timerInterval(interval float64) int {
+	return int(settings.Duration(interval) / time.Millisecond)
 }
 
 // The time between frames is no less than minFrame, 60 frames a second, and
@@ -242,25 +253,26 @@ func (w *Window) makeMenus() {
 	w.file = w.MenuBar().AddMenuWithTitle("&File")
 	settingsAction := w.file.AddActionWithText("&Settings…")
 	settingsAction.SetMenuRole(qt.QAction__PreferencesRole)
-	shortcut := qt.NewQKeySequence2("Ctrl+,")
-	settingsAction.SetShortcut(shortcut)
-	shortcut.Delete()
+	setShortcut(settingsAction, "Ctrl+,")
 	settingsAction.OnTriggered(func() { w.editSettings() })
 	w.file.AddSeparator()
 	quit := w.file.AddActionWithText("&Quit")
-	shortcut = qt.NewQKeySequence2("Ctrl+Q")
-	quit.SetShortcut(shortcut)
-	shortcut.Delete()
+	setShortcut(quit, "Ctrl+Q")
 	quit.SetMenuRole(qt.QAction__QuitRole)
 	quit.OnTriggered(func() { w.Close() })
 
 	w.help = w.MenuBar().AddMenuWithTitle("&Help")
 	about := w.help.AddActionWithText("&About")
 	about.SetMenuRole(qt.QAction__AboutRole)
-	shortcut = qt.NewQKeySequence2("Ctrl+I")
-	about.SetShortcut(shortcut)
-	shortcut.Delete()
+	setShortcut(about, "Ctrl+I")
 	about.OnTriggered(func() { showAbout(w.QWidget) })
+}
+
+// setShortcut gives the action the shortcut.
+func setShortcut(action *qt.QAction, keys string) {
+	shortcut := qt.NewQKeySequence2(keys)
+	defer shortcut.Delete()
+	action.SetShortcut(shortcut)
 }
 
 // newSection makes the part of the window with the heading.
@@ -271,12 +283,7 @@ func newSection(title string) section {
 	s.layout.SetSpacing(6)
 
 	heading := qt.NewQHBoxLayout2()
-	label := qt.NewQLabel3(title)
-	font := qt.NewQFont5(label.Font())
-	font.SetBold(true)
-	label.SetFont(font)
-	font.Delete()
-	heading.AddWidget(label.QWidget)
+	heading.AddWidget(sectionHeading(title).QWidget)
 	s.errors = qt.NewQLabel2()
 	s.errors.SetVisible(false)
 	heading.AddWidget2(s.errors.QWidget, 1)
@@ -388,9 +395,10 @@ func (w *Window) sampleCPU() {
 // say: a line for each, or one for all of them.
 func (w *Window) showCPU() {
 	colours := w.config.Colours
+	total := w.config.CPUMode == settings.CPUTotal
 	var lines []line
 	var entries []entry
-	if w.config.CPUMode == settings.CPUTotal {
+	if total {
 		lines = append(lines, line{colours.Total, w.cpu.all.Points(), true})
 		entries = append(entries, entry{colours.Total, "CPU", w.cpuPercent(&w.cpu.all), w.colourSetter(func(c *settings.Colours, colour string) {
 			c.Total = colour
@@ -410,7 +418,6 @@ func (w *Window) showCPU() {
 		}
 	}
 	w.cpu.graph.show(w.now(), span(w.config.Intervals.CPU), 100, chart.PercentLabels(), lines, colours.Grid)
-	total := w.config.CPUMode == settings.CPUTotal
 	w.cpu.legend.SetVisible(!total)
 	w.cpu.total.SetVisible(total)
 	if total {
@@ -543,7 +550,7 @@ func (w *Window) sampleNetwork() {
 		a.sent.Fill(now, s, 0)
 		a.received.Add(now, rate.Received)
 		a.sent.Add(now, rate.Sent)
-		if _, ok := w.config.Colours.Adapter(name); ok {
+		if _, given := w.config.Colours.Adapter(name); given {
 			added = true
 		}
 	}
@@ -632,7 +639,7 @@ func (w *Window) applySettings(s settings.Settings) {
 		{w.network.timer, s.Intervals.Network},
 		{w.processes.timer, s.Intervals.Processes},
 	} {
-		if ms := int(settings.Duration(t.interval) / time.Millisecond); t.timer.Interval() != ms {
+		if ms := timerInterval(t.interval); t.timer.Interval() != ms {
 			t.timer.SetInterval(ms)
 		}
 	}

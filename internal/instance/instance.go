@@ -119,9 +119,7 @@ func handOver(path, token string) error {
 // Serve calls activate, on a goroutine of its own, with the token of each copy
 // started later, until Close. It returns at once.
 func (i *Instance) Serve(activate func(token string)) {
-	i.wg.Add(1)
-	go func() {
-		defer i.wg.Done()
+	i.wg.Go(func() {
 		for {
 			conn, err := i.listener.Accept()
 			if err != nil {
@@ -138,7 +136,7 @@ func (i *Instance) Serve(activate func(token string)) {
 			i.mu.Unlock()
 			go i.read(conn, activate)
 		}
-	}()
+	})
 }
 
 // read reads the token from a copy started later and passes it on, unless the

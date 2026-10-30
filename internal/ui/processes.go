@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"maps"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -243,8 +244,11 @@ func (p *processes) fitColumns() {
 		largest = max(largest, proc.PID)
 	}
 	digits := strings.Repeat("8", len(strconv.Itoa(largest)))
-	pid := max(p.tree.FontMetrics().HorizontalAdvance(digits),
-		header.FontMetrics().HorizontalAdvance(processHeadings[colProcessPID])+sortArrowRoom) + columnPadding
+	rowMetrics, headerMetrics := p.tree.FontMetrics(), header.FontMetrics()
+	defer runtime.KeepAlive(rowMetrics)
+	defer runtime.KeepAlive(headerMetrics)
+	pid := max(rowMetrics.HorizontalAdvance(digits),
+		headerMetrics.HorizontalAdvance(processHeadings[colProcessPID])+sortArrowRoom) + columnPadding
 	header.ResizeSection(colProcessPID, pid)
 	rest := max(header.Width()-pid, 0)
 	total := 0

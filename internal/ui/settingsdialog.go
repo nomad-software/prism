@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"maps"
 	"runtime"
 	"slices"
 	"strings"
@@ -39,8 +40,12 @@ type settingsDialog struct {
 // and what is on it, as TriggerAPI has it.
 const tabMargin = 20
 
-// settingsWidth is the narrowest the settings dialog opens.
-const settingsWidth = 600
+// settingsWidth is the narrowest the settings dialog opens, and
+// settingsLeastWidth the narrowest it can be made.
+const (
+	settingsWidth      = 600
+	settingsLeastWidth = 560
+)
 
 // colourTableHeight is the least height of the table of colours, which
 // scrolls to show the rest.
@@ -52,7 +57,7 @@ const colourTableHeight = 300
 func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int, adapters []string, accepted func(settings.Settings)) *settingsDialog {
 	d := &settingsDialog{QDialog: qt.NewQDialog(parent), names: adapters}
 	d.SetWindowTitle("Settings")
-	d.SetMinimumWidth(560)
+	d.SetMinimumWidth(settingsLeastWidth)
 	tabs := qt.NewQTabWidget2()
 
 	general := qt.NewQWidget2()
@@ -206,6 +211,7 @@ func (d *settingsDialog) colourTable(cores int) *qt.QTableWidget {
 		item := qt.NewQTableWidgetItem2(title)
 		item.SetFlags(qt.ItemIsEnabled)
 		font := item.Font()
+		defer runtime.KeepAlive(font)
 		font.SetBold(true)
 		item.SetFont(font)
 		row := table.RowCount()
@@ -360,9 +366,7 @@ func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 			s.Colours.SetCore(i, colour)
 		}
 	}
-	for name, colour := range current.Colours.Network {
-		s.Colours.Network[name] = colour
-	}
+	maps.Copy(s.Colours.Network, current.Colours.Network)
 	for i, sw := range d.adapters {
 		s.Colours.Network[d.names[i]] = sw.colour
 	}
@@ -466,6 +470,7 @@ var pickColour = func(parent *qt.QWidget, name, colour string) (string, bool) {
 	defer initial.Delete()
 	// The colour chosen is freed by the garbage collector.
 	chosen := qt.QColorDialog_GetColor4(initial, parent, "Colour of "+name, qt.QColorDialog__ShowAlphaChannel)
+	defer runtime.KeepAlive(chosen)
 	if !chosen.IsValid() {
 		return "", false
 	}

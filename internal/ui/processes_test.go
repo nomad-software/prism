@@ -226,10 +226,10 @@ func TestSortProcessesByHeader(t *testing.T) {
 
 func TestSortProcesses(t *testing.T) {
 	list := []usage.Process{
-		{Process: stats.Process{PID: 4}},
-		{Process: stats.Process{PID: 2}, Busy: 0, Measured: true},
-		{Process: stats.Process{PID: 3}, Busy: 50, Measured: true},
-		{Process: stats.Process{PID: 1}, Busy: 50, Measured: true},
+		{PID: 4},
+		{PID: 2, Busy: 0, Measured: true},
+		{PID: 3, Busy: 50, Measured: true},
+		{PID: 1, Busy: 50, Measured: true},
 	}
 	pids := func() []int {
 		var pids []int
@@ -683,7 +683,7 @@ func TestProcessSearch(t *testing.T) {
 
 func TestTreeOrderRing(t *testing.T) {
 	// Processes that are each other's parents, as cannot be, are all listed.
-	list := []usage.Process{{Process: stats.Process{PID: 1, PPID: 2}}, {Process: stats.Process{PID: 2, PPID: 1}}}
+	list := []usage.Process{{PID: 1, PPID: 2}, {PID: 2, PPID: 1}}
 	got, depths := treeOrder(list, colProcessPID, false)
 	if len(got) != 2 || len(depths) != 2 {
 		t.Errorf("treeOrder of a ring = %+v, %v", got, depths)

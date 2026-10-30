@@ -119,7 +119,8 @@ change.
 ## Settings
 
 The menu bar has **File** (Settings, Quit with Ctrl+Q) and **Help** (About with
-Ctrl+I: the version of Qt and the licences of what Prism is built with).
+Ctrl+I: the version of Prism, the version of Qt and the licences of what Prism
+is built with).
 On macOS these are in the application's menu.
 
 **File > Settings** (Ctrl+, or ⌘, on macOS) has:
@@ -136,9 +137,9 @@ On macOS these are in the application's menu.
   choice when it goes away, for when it comes back. Each can be given an
   alias, which the legend shows in place of its name.
 - **User interface**: the theme, light, dark, or following the system; and a
-  table, as TriggerAPI has, of the colours of the grid, memory,
-  swap, all processors together, each processor, and each network adapter
-  that has been seen, under a heading for each. Click a swatch to choose
+  table of the colours of the grid, memory, swap, all processors together,
+  each processor, and each network adapter that has been seen, under a
+  heading for each. Click a swatch to choose
   another colour; colours can be translucent. An adapter is given a colour
   when it is first seen, and keeps it when it goes away. **Use Default
   Colours** puts back the colours alone. The default colours are the eight
@@ -151,8 +152,8 @@ On macOS these are in the application's menu.
 adapter and giving them their colours afresh.
 
 The settings, and the size of the window, are kept in
-`prism/settings.json` where the system keeps the configuration of
-programs, as ApeMail's are: `~/.config` on Linux (or `$XDG_CONFIG_HOME`), and
+`prism/settings.json` where the system keeps the configuration of programs:
+`~/.config` on Linux (or `$XDG_CONFIG_HOME`), and
 `~/Library/Application Support` on macOS.
 
 ## One copy at a time
@@ -183,7 +184,7 @@ Apple Silicon (see [macOS app](#macos-app)).
 
 Building needs:
 
-- Go 1.27 or later
+- Go 1.27.1 or later
 - A C++ compiler (GCC or Clang)
 - `pkg-config`
 - The Qt 6 development files of Qt Widgets
@@ -207,7 +208,7 @@ sudo zypper install go gcc-c++ pkgconf-pkg-config qt6-base-devel
 brew install go pkgconf qtbase
 ```
 
-If your distribution's Go is older than 1.27, install Go from
+If your distribution's Go is older than 1.27.1, install Go from
 [go.dev/dl](https://go.dev/dl/) instead.
 
 Check that Qt can be found with:
@@ -237,6 +238,10 @@ make vet
 make screenshot # draws docs/screenshot.png
 make icons      # draws the icons, after their drawing changes
 ```
+
+The about box shows the version Go records from git when it builds: the tag,
+or the last tag for a build after it. A build Go records no version for, as
+one made outside a git checkout, shows "dev".
 
 Build after every change, and lint with `staticcheck ./...` and
 `deadcode -test ./...`, which must both be clean.
@@ -312,5 +317,7 @@ It is built by a GitHub workflow (`.github/workflows/macos.yml`), which runs
   Solarized red, blue and green thirds.
 - `internal/ui` is the window, the graphs and legends it paints, the table
   of processes, the settings dialog and the about box.
+- `packaging` has the scripts and files that make the AppImage and the macOS
+  app.
 - `.github/workflows` has `appimage.yml` and `macos.yml` (`v` tags, or by
   hand).

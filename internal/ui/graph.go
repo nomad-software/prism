@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"math"
 	"runtime"
 	"strings"
 	"time"
@@ -46,12 +47,13 @@ type graph struct {
 	background *qt.QPixmap
 	look       look
 	plot       chart.Rect
-	// curves are the lines made ready to draw in the rectangle curvesRect,
-	// as they were at the time curvesAt, which they are drawn from, moved
-	// along, until the next reading.
-	curves     []curve
-	curvesRect chart.Rect
-	curvesAt   time.Time
+	// layer is the lines, stroked once on a clear pixmap as they were at the
+	// time curvesAt, which is drawn from, moved along, until the next reading,
+	// as stroking them is nearly all the time drawing a graph takes. curves
+	// are what is drawn of the lines beside it.
+	layer    *qt.QPixmap
+	curves   []curve
+	curvesAt time.Time
 }
 
 // look is what the background of a graph shows: its size, the scale of its
@@ -65,12 +67,10 @@ type look struct {
 	base, text    uint
 }
 
-// curve is a line of a graph made ready to draw: the path through its
-// points, unless it has fewer than two, and its pen. A line that holds, and
-// has a point, has hold set, and is drawn on from where its newest point was,
-// last, of the time lastAt, to the right edge.
+// curve is what is drawn of a line of a graph beside the layer: its pen, and,
+// for a line that holds and has a point, hold, for it to be drawn on from where
+// its newest point was, last, of the time lastAt, to the right edge.
 type curve struct {
-	path   *qt.QPainterPath
 	pen    *qt.QPen
 	hold   bool
 	last   chart.XY
@@ -113,13 +113,10 @@ func (g *graph) pixelTime() time.Duration {
 	return time.Duration(float64(g.span) / max(pixels, 1))
 }
 
-// forgetCurves lets the curves made of the lines go, for them to be made
-// again from the lines as they are now.
+// forgetCurves lets the curves made of the lines go, for them and the layer
+// to be made again from the lines as they are now.
 func (g *graph) forgetCurves() {
 	for _, c := range g.curves {
-		if c.path != nil {
-			c.path.Delete()
-		}
 		c.pen.Delete()
 	}
 	g.curves = nil
@@ -163,7 +160,8 @@ func plotRect(width, height int, labels []string, fm *qt.QFontMetrics) chart.Rec
 }
 
 // paint draws the graph: the background, as it was drawn last unless what
-// it shows has changed, and the lines on it, moved along to now.
+// it shows has changed, and the lines on it, as they were stroked at the last
+// reading, moved along to now.
 func (g *graph) paint() {
 	p := qt.NewQPainter2(g.QPaintDevice)
 	defer p.Delete()
@@ -186,9 +184,6 @@ func (g *graph) paint() {
 	p.DrawPixmap9(0, 0, g.background)
 
 	r := g.plot
-	if g.curves != nil && g.curvesRect != r {
-		g.forgetCurves()
-	}
 	if g.curves == nil {
 		g.makeCurves(r)
 	}
@@ -196,24 +191,37 @@ func (g *graph) paint() {
 	plot := qt.NewQRectF4(r.X, r.Y, r.W, r.H)
 	defer plot.Delete()
 	p.SetClipRect(plot)
-	for _, c := range g.curves {
-		g.drawCurve(p, c, r)
-	}
+	g.drawLines(p, r)
 	g.drawn = g.now
+}
+
+// newLookPixmap returns a clear pixmap of the size and ratio of the look.
+func newLookPixmap(l look) *qt.QPixmap {
+	pixmap := qt.NewQPixmap2(int(float64(l.width)*l.ratio+0.5), int(float64(l.height)*l.ratio+0.5))
+	pixmap.SetDevicePixelRatio(l.ratio)
+	clearPixmap(pixmap)
+	return pixmap
+}
+
+// clearPixmap makes the pixmap clear.
+func clearPixmap(pixmap *qt.QPixmap) {
+	transparent := qt.NewQColor2(qt.Transparent)
+	defer transparent.Delete()
+	pixmap.FillWithFillColor(transparent)
 }
 
 // drawBackground draws what the background shows into a pixmap of the size
 // of the graph: the grid, filled, the labels up its right side and along its
-// bottom, and the title in its top left corner.
+// bottom, and the title in its top left corner. The grid can have moved, and
+// the layer is of the same size, so the lines are made again to fit.
 func (g *graph) drawBackground(l look, font *qt.QFont, base, text *qt.QColor) {
 	if g.background != nil {
 		g.background.Delete()
+		g.layer.Delete()
 	}
-	g.background = qt.NewQPixmap2(int(float64(l.width)*l.ratio+0.5), int(float64(l.height)*l.ratio+0.5))
-	g.background.SetDevicePixelRatio(l.ratio)
-	transparent := qt.NewQColor2(qt.Transparent)
-	defer transparent.Delete()
-	g.background.FillWithFillColor(transparent)
+	g.background = newLookPixmap(l)
+	g.layer = newLookPixmap(l)
+	g.forgetCurves()
 	g.look = l
 
 	p := qt.NewQPainter2(g.background.QPaintDevice)
@@ -265,9 +273,16 @@ func (g *graph) drawBackground(l look, font *qt.QFont, base, text *qt.QColor) {
 	}
 }
 
-// makeCurves makes the lines ready to draw in the rectangle of the grid, as
-// they are at the time the graph is at: each a curve through its points.
+// makeCurves strokes the lines on the layer, in the rectangle of the grid, as
+// they are at the time the graph is at: each a curve through its points. They
+// are cut off at the grid when the layer is drawn.
 func (g *graph) makeCurves(r chart.Rect) {
+	clearPixmap(g.layer)
+	p := qt.NewQPainter2(g.layer.QPaintDevice)
+	defer p.Delete()
+	defer p.End()
+	p.SetRenderHint(qt.QPainter__Antialiasing)
+	p.SetBrushWithStyle(qt.NoBrush)
 	g.curves = make([]curve, 0, len(g.lines))
 	for _, l := range g.lines {
 		colour := qt.NewQColor6(l.colour)
@@ -279,32 +294,36 @@ func (g *graph) makeCurves(r chart.Rect) {
 			c.hold, c.last, c.lastAt = true, placed[n-1], l.points[n-1].T
 		}
 		if len(placed) >= 2 {
-			c.path = qt.NewQPainterPath()
-			c.path.MoveTo2(placed[0].X, placed[0].Y)
+			path := qt.NewQPainterPath()
+			path.MoveTo2(placed[0].X, placed[0].Y)
 			for i := 1; i < len(placed); i++ {
 				c1, c2 := chart.Controls(placed[i-1], placed[i])
-				c.path.CubicTo2(c1.X, c1.Y, c2.X, c2.Y, placed[i].X, placed[i].Y)
+				path.CubicTo2(c1.X, c1.Y, c2.X, c2.Y, placed[i].X, placed[i].Y)
 			}
+			p.SetPenWithPen(c.pen)
+			p.DrawPath(path)
+			path.Delete()
 		}
 		g.curves = append(g.curves, c)
 	}
-	g.curvesRect, g.curvesAt = r, g.now
+	g.curvesAt = g.now
 }
 
-// drawCurve draws a line of the graph in the rectangle of its grid, moved
-// along from where it was made ready to now. A line that holds is drawn on
-// from its newest point, unchanged, to the right edge.
-func (g *graph) drawCurve(p *qt.QPainter, c curve, r chart.Rect) {
-	dx := -g.now.Sub(g.curvesAt).Seconds() / g.span.Seconds() * r.W
-	p.SetPenWithPen(c.pen)
-	p.SetBrushWithStyle(qt.NoBrush)
-	if c.path != nil {
-		p.Translate2(dx, 0)
-		p.DrawPath(c.path)
-		p.Translate2(-dx, 0)
-	}
-	if c.hold && g.now.After(c.lastAt) {
-		drawLine(p, c.last.X+dx, c.last.Y, r.X+r.W, c.last.Y)
+// drawLines draws the lines of the graph in the rectangle of its grid: the
+// layer, moved along from where it was stroked to now by whole pixels of the
+// screen, which keep it as sharp as it was stroked, and each line that holds
+// drawn on from its newest point, unchanged, to the right edge.
+func (g *graph) drawLines(p *qt.QPainter, r chart.Rect) {
+	ratio := g.look.ratio
+	dx := math.Round(-g.now.Sub(g.curvesAt).Seconds()/g.span.Seconds()*r.W*ratio) / ratio
+	p.Translate2(dx, 0)
+	p.DrawPixmap9(0, 0, g.layer)
+	p.Translate2(-dx, 0)
+	for _, c := range g.curves {
+		if c.hold && g.now.After(c.lastAt) {
+			p.SetPenWithPen(c.pen)
+			drawLine(p, c.last.X+dx, c.last.Y, r.X+r.W, c.last.Y)
+		}
 	}
 }
 

@@ -84,19 +84,24 @@ func TestGraphHold(t *testing.T) {
 		s.Add(now.Add(-time.Minute), 50)
 		s.Add(now, 50)
 		points := s.Points()
+		var other history.Series
+		other.Add(now.Add(-time.Minute), 20)
+		other.Add(now, 20)
 		// The graph moves on half a minute: the line that holds goes on to
 		// its right edge, and the one that does not stops half way.
-		g.show(now, time.Minute, 100, chart.PercentLabels(), []line{{"#ff0000", points, true}, {"#00ff00", points, false}}, "#0000ff")
+		g.show(now, time.Minute, 100, chart.PercentLabels(), []line{{"#ff0000", points, true}, {"#00ff00", other.Points(), false}}, "#0000ff")
 		g.advance(now.Add(30 * time.Second))
 		img := render(g.QWidget)
 		defer img.Delete()
 		right := func(colour string) int {
 			want := qt.NewQColor6(colour)
 			defer want.Delete()
+			// The edges of a line drawn smoothly are near its colour.
+			near := func(got, want int) bool { return got-want < 80 && want-got < 80 }
 			last := -1
 			for x := range img.Width() {
 				for y := range img.Height() {
-					if p := int(img.Pixel(x, y)); p>>16&0xff == want.Red() && p>>8&0xff == want.Green() && p&0xff == want.Blue() {
+					if p := int(img.Pixel(x, y)); near(p>>16&0xff, want.Red()) && near(p>>8&0xff, want.Green()) && near(p&0xff, want.Blue()) {
 						last = x
 					}
 				}
@@ -136,13 +141,13 @@ func TestGraphKept(t *testing.T) {
 		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#0000ff")
 		img := render(g.QWidget)
 		img.Delete()
-		background, path := g.background, g.curves[0].path
+		background, layer, pen := g.background, g.layer, g.curves[0].pen
 
 		// Moving along keeps both, and draws the line where it now is.
 		g.advance(now.Add(30 * time.Second))
 		img = render(g.QWidget)
-		if g.background != background || g.curves[0].path != path {
-			t.Error("moving along drew the background or made the curves again")
+		if g.background != background || g.layer != layer || g.curves[0].pen != pen {
+			t.Error("moving along drew the background or stroked the lines again")
 		}
 		if !g.drawn.Equal(now.Add(30 * time.Second)) {
 			t.Errorf("drawn at %v, want the time moved to", g.drawn)
@@ -156,8 +161,8 @@ func TestGraphKept(t *testing.T) {
 		// new colour of the grid draws it again.
 		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#0000ff")
 		render(g.QWidget).Delete()
-		if g.background != background || g.curves[0].path == path {
-			t.Error("a reading did not make the curves again, or drew the background again")
+		if g.background != background || g.curves[0].pen == pen {
+			t.Error("a reading did not stroke the lines again, or drew the background again")
 		}
 		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#00ffff")
 		img = render(g.QWidget)
@@ -166,11 +171,14 @@ func TestGraphKept(t *testing.T) {
 		}
 		img.Delete()
 		// So does a new size, which makes the curves again to fit it.
-		background, path = g.background, g.curves[0].path
+		background, layer, pen = g.background, g.layer, g.curves[0].pen
 		g.Resize(500, 200)
 		render(g.QWidget).Delete()
-		if g.background == background || g.curves[0].path == path {
-			t.Error("a new size did not draw the background and make the curves again")
+		if w := g.layer.Width(); w != 500 {
+			t.Errorf("the layer is %d wide, want the graph's 500", w)
+		}
+		if g.background == background || g.layer == layer || g.curves[0].pen == pen {
+			t.Error("a new size did not draw the background and stroke the lines again")
 		}
 	})
 }

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"maps"
+	"math"
 	"os"
 	"slices"
 	"strings"
@@ -157,12 +158,21 @@ func TestGraphKept(t *testing.T) {
 		}
 		img.Delete()
 
-		// A reading makes the curves again, but keeps the background; a
-		// new colour of the grid draws it again.
-		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#0000ff")
+		// A reading that goes on from the lines keeps both; one with another
+		// colour strokes them again, but keeps the background; a new colour
+		// of the grid draws it again.
+		s.Add(now.Add(30*time.Second), 40)
+		lines = []line{{"#ff0000", s.Points(), true}}
+		g.show(now.Add(30*time.Second), time.Minute, 100, chart.PercentLabels(), lines, "#0000ff")
+		render(g.QWidget).Delete()
+		if g.background != background || g.layer != layer || g.curves[0].pen != pen {
+			t.Error("a reading stroked the lines again, or drew the background again")
+		}
+		lines = []line{{"#00ff00", s.Points(), true}}
+		g.show(now.Add(30*time.Second), time.Minute, 100, chart.PercentLabels(), lines, "#0000ff")
 		render(g.QWidget).Delete()
 		if g.background != background || g.curves[0].pen == pen {
-			t.Error("a reading did not stroke the lines again, or drew the background again")
+			t.Error("a new colour did not stroke the lines again, or drew the background again")
 		}
 		g.show(now, time.Minute, 100, chart.PercentLabels(), lines, "#00ffff")
 		img = render(g.QWidget)
@@ -174,11 +184,87 @@ func TestGraphKept(t *testing.T) {
 		background, layer, pen = g.background, g.layer, g.curves[0].pen
 		g.Resize(500, 200)
 		render(g.QWidget).Delete()
-		if w := g.layer.Width(); w != 500 {
-			t.Errorf("the layer is %d wide, want the graph's 500", w)
+		if w, want := g.layer.Width(), int(500*g.look.ratio+0.5); w != want {
+			t.Errorf("the layer is %d wide, want the graph's %d", w, want)
 		}
 		if g.background == background || g.layer == layer || g.curves[0].pen == pen {
 			t.Error("a new size did not draw the background and stroke the lines again")
+		}
+	})
+}
+
+// TestGraphExtends checks that lines stroked a reading at a time look as they
+// do stroked whole, and that what cannot go on from them strokes them whole.
+func TestGraphExtends(t *testing.T) {
+	mainthread.Wait(func() {
+		start := time.Unix(1_700_000_000, 0)
+		value := func(i, n int) float64 { return 50 + 45*math.Sin(float64(i*(n+3))*0.7) }
+		series := [3]history.Series{}
+		lines := func() []line {
+			return []line{
+				{"#ff0000", series[0].Points(), true},
+				// Translucent, as a colour can be, where a join would show most.
+				{"#800000ff", series[1].Points(), true},
+				{"#00aa00", series[2].Points(), true},
+			}
+		}
+		labels := chart.PercentLabels()
+		g := newGraph()
+		defer g.Delete()
+		g.Resize(600, 200)
+		var pen *qt.QPen
+		var at time.Time
+		for i := range 90 {
+			// Not a whole number of pixels from one reading to the next.
+			at = start.Add(time.Duration(i) * 1037 * time.Millisecond)
+			for n := range series {
+				series[n].Fill(at, time.Minute, 0)
+				series[n].Add(at, value(i, n))
+				series[n].Trim(at.Add(-time.Minute))
+			}
+			g.show(at, time.Minute, 100, labels, lines(), "#0000ff")
+			render(g.QWidget).Delete()
+			if i == 0 {
+				pen = g.curves[0].pen
+			}
+		}
+		if g.curves[0].pen != pen {
+			t.Fatal("the readings stroked the lines whole")
+		}
+		// Both layers are of the time the first is at, which can be part of a
+		// pixel from the last reading.
+		whole := newGraph()
+		defer whole.Delete()
+		whole.Resize(600, 200)
+		whole.show(g.curvesAt, time.Minute, 100, labels, lines(), "#0000ff")
+		render(whole.QWidget).Delete()
+		extended, stroked := g.layer.ToImage(), whole.layer.ToImage()
+		defer extended.Delete()
+		defer stroked.Delete()
+		worst, differing := 0, 0
+		for y := range stroked.Height() {
+			for x := range stroked.Width() {
+				a, b := int(extended.Pixel(x, y)), int(stroked.Pixel(x, y))
+				for _, shift := range []int{0, 8, 16, 24} {
+					d := a>>shift&0xff - b>>shift&0xff
+					worst = max(worst, max(d, -d))
+					if d != 0 {
+						differing++
+					}
+				}
+			}
+		}
+		// Only a stray pixel may differ, and hardly, the more so the smaller
+		// they are.
+		if differing > 32 || worst > 32 {
+			t.Errorf("the lines stroked a reading at a time differ from those stroked whole by up to %d, in %d channels", worst, differing)
+		}
+
+		// A new scale cannot go on from them.
+		g.show(at, time.Minute, 50, labels, lines(), "#0000ff")
+		render(g.QWidget).Delete()
+		if g.curves[0].pen == pen {
+			t.Error("a new scale did not stroke the lines whole")
 		}
 	})
 }

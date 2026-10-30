@@ -3,6 +3,7 @@ package ui
 import (
 	"math"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -47,13 +48,16 @@ type graph struct {
 	background *qt.QPixmap
 	look       look
 	plot       chart.Rect
-	// layer is the lines, stroked once on a clear pixmap as they were at the
-	// time curvesAt, which is drawn from, moved along, until the next reading,
-	// as stroking them is nearly all the time drawing a graph takes. curves
-	// are what is drawn of the lines beside it.
-	layer    *qt.QPixmap
-	curves   []curve
-	curvesAt time.Time
+	// layer is the lines, stroked on a clear pixmap as they were at the time
+	// curvesAt, to the scale of curvesTop, which is drawn from, moved along,
+	// as stroking them is nearly all the time drawing a graph takes. A reading
+	// scrolls it and strokes only what is new. curves are what is known of the
+	// lines on it, and stale says that the lines have changed since.
+	layer     *qt.QPixmap
+	curves    []curve
+	curvesAt  time.Time
+	curvesTop float64
+	stale     bool
 }
 
 // look is what the background of a graph shows: its size, the scale of its
@@ -67,14 +71,26 @@ type look struct {
 	base, text    uint
 }
 
-// curve is what is drawn of a line of a graph beside the layer: its pen, and,
-// for a line that holds and has a point, hold, for it to be drawn on from where
-// its newest point was, last, of the time lastAt, to the right edge.
+// curve is what is known of a line of a graph on the layer: its colour and
+// pen, and its newest point, newest, which is at last on the layer. A line
+// that holds, and has a point, has hold set, and is drawn on from there to the
+// right edge.
 type curve struct {
+	colour string
 	pen    *qt.QPen
 	hold   bool
+	newest history.Point
 	last   chart.XY
-	lastAt time.Time
+}
+
+// note keeps what the curve needs of the line, whose points are placed on the
+// layer.
+func (c *curve) note(l line, placed []chart.XY) {
+	n := len(placed)
+	c.hold = l.hold && n > 0
+	if n > 0 {
+		c.newest, c.last = l.points[n-1], placed[n-1]
+	}
 }
 
 // newGraph returns an empty graph.
@@ -90,7 +106,7 @@ func newGraph() *graph {
 // with the labels.
 func (g *graph) show(now time.Time, span time.Duration, top float64, labels []string, lines []line, grid string) {
 	g.now, g.span, g.top, g.labels, g.lines, g.grid = now, span, top, labels, lines, grid
-	g.forgetCurves()
+	g.stale = true
 	g.Update()
 }
 
@@ -160,8 +176,8 @@ func plotRect(width, height int, labels []string, fm *qt.QFontMetrics) chart.Rec
 }
 
 // paint draws the graph: the background, as it was drawn last unless what
-// it shows has changed, and the lines on it, as they were stroked at the last
-// reading, moved along to now.
+// it shows has changed, and the lines on it, as they were last stroked, moved
+// along to now.
 func (g *graph) paint() {
 	p := qt.NewQPainter2(g.QPaintDevice)
 	defer p.Delete()
@@ -186,7 +202,10 @@ func (g *graph) paint() {
 	r := g.plot
 	if g.curves == nil {
 		g.makeCurves(r)
+	} else if g.stale {
+		g.updateCurves(r)
 	}
+	g.stale = false
 	p.SetRenderHint(qt.QPainter__Antialiasing)
 	plot := qt.NewQRectF4(r.X, r.Y, r.W, r.H)
 	defer plot.Delete()
@@ -273,40 +292,143 @@ func (g *graph) drawBackground(l look, font *qt.QFont, base, text *qt.QColor) {
 	}
 }
 
-// makeCurves strokes the lines on the layer, in the rectangle of the grid, as
-// they are at the time the graph is at: each a curve through its points. They
-// are cut off at the grid when the layer is drawn.
+// makeCurves strokes the whole of every line on the layer, in the rectangle of
+// the grid, as they are at the time the graph is at: each a curve through its
+// points. They are cut off at the grid when the layer is drawn.
 func (g *graph) makeCurves(r chart.Rect) {
 	clearPixmap(g.layer)
-	p := qt.NewQPainter2(g.layer.QPaintDevice)
+	p := newLayerPainter(g.layer)
 	defer p.Delete()
 	defer p.End()
-	p.SetRenderHint(qt.QPainter__Antialiasing)
-	p.SetBrushWithStyle(qt.NoBrush)
 	g.curves = make([]curve, 0, len(g.lines))
 	for _, l := range g.lines {
 		colour := qt.NewQColor6(l.colour)
-		c := curve{pen: qt.NewQPen3(colour)}
+		c := curve{colour: l.colour, pen: qt.NewQPen3(colour)}
 		colour.Delete()
 		c.pen.SetWidthF(lineWidth)
 		placed := chart.Place(l.points, g.now, g.span, g.top, r)
-		if n := len(placed); l.hold && n > 0 {
-			c.hold, c.last, c.lastAt = true, placed[n-1], l.points[n-1].T
-		}
-		if len(placed) >= 2 {
-			path := qt.NewQPainterPath()
-			path.MoveTo2(placed[0].X, placed[0].Y)
-			for i := 1; i < len(placed); i++ {
-				c1, c2 := chart.Controls(placed[i-1], placed[i])
-				path.CubicTo2(c1.X, c1.Y, c2.X, c2.Y, placed[i].X, placed[i].Y)
-			}
-			p.SetPenWithPen(c.pen)
-			p.DrawPath(path)
-			path.Delete()
-		}
+		c.note(l, placed)
+		strokeLine(p, c.pen, placed)
 		g.curves = append(g.curves, c)
 	}
-	g.curvesAt = g.now
+	g.curvesAt, g.curvesTop = g.now, g.top
+}
+
+// newLayerPainter returns a painter ready to stroke lines on the layer.
+func newLayerPainter(layer *qt.QPixmap) *qt.QPainter {
+	p := qt.NewQPainter2(layer.QPaintDevice)
+	p.SetRenderHint(qt.QPainter__Antialiasing)
+	p.SetBrushWithStyle(qt.NoBrush)
+	return p
+}
+
+// strokeLine strokes a curve through the places, of which there must be two
+// for there to be one.
+func strokeLine(p *qt.QPainter, pen *qt.QPen, placed []chart.XY) {
+	if len(placed) < 2 {
+		return
+	}
+	path := qt.NewQPainterPath()
+	defer path.Delete()
+	path.MoveTo2(placed[0].X, placed[0].Y)
+	for i := 1; i < len(placed); i++ {
+		c1, c2 := chart.Controls(placed[i-1], placed[i])
+		path.CubicTo2(c1.X, c1.Y, c2.X, c2.Y, placed[i].X, placed[i].Y)
+	}
+	p.SetPenWithPen(pen)
+	p.DrawPath(path)
+}
+
+// newSince says what the lines have that the layer has not: whether they have
+// points it has not, the oldest time they go on from if they have, and whether
+// they are the lines on the layer, gone on with, at all. They are not if the
+// scale, their number or a colour changed, or the point a line reached has gone
+// from it, or differs, as of another line.
+func (g *graph) newSince() (from time.Time, fresh, same bool) {
+	if g.top != g.curvesTop || len(g.lines) != len(g.curves) {
+		return from, false, false
+	}
+	for i, l := range g.lines {
+		c := g.curves[i]
+		if l.colour != c.colour {
+			return from, false, false
+		}
+		reached := slices.Index(l.points, c.newest)
+		switch {
+		case c.newest.T.IsZero() && len(l.points) > 0, !c.newest.T.IsZero() && reached < 0:
+			return from, false, false
+		case reached >= 0 && reached < len(l.points)-1 && (!fresh || c.newest.T.Before(from)):
+			from, fresh = c.newest.T, true
+		}
+	}
+	return from, fresh, true
+}
+
+// updateCurves brings the layer up to the lines as they are now, stroking only
+// what is new if they go on from those on it, and all of them if not.
+func (g *graph) updateCurves(r chart.Rect) {
+	from, fresh, same := g.newSince()
+	if !same || g.now.Before(g.curvesAt) || !g.extendCurves(r, from, fresh) {
+		g.forgetCurves()
+		g.makeCurves(r)
+	}
+}
+
+// strokeMargin is how far before where a line is stroked on from its path
+// starts, so that the end of the path is not seen, in pixels.
+const strokeMargin = 2
+
+// extendCurves scrolls the layer along to the time the graph is at, by whole
+// pixels of the screen, and clears it from where the lines go on from, a whole
+// pixel at or before the time, then strokes what is there again of each line.
+// Their paths start before there, and are cut off at it, so that the pixels
+// either side are of one line, with no join to be seen. Where it would be
+// scrolled right off, it returns false. Lines with nothing new are only noted.
+func (g *graph) extendCurves(r chart.Rect, from time.Time, fresh bool) bool {
+	if !fresh {
+		for i, l := range g.lines {
+			g.curves[i].hold = l.hold && !g.curves[i].newest.T.IsZero()
+		}
+		return true
+	}
+	ratio := g.look.ratio
+	across := r.W * ratio / g.span.Seconds()
+	shift := int(math.Round(g.now.Sub(g.curvesAt).Seconds() * across))
+	if shift >= g.layer.Width() {
+		return false
+	}
+	if shift > 0 {
+		g.layer.Scroll(-shift, 0, 0, 0, g.layer.Width(), g.layer.Height())
+		g.curvesAt = g.curvesAt.Add(time.Duration(float64(shift) / across * float64(time.Second)))
+	}
+	place := func(points []history.Point) []chart.XY {
+		return chart.Place(points, g.curvesAt, g.span, g.top, r)
+	}
+	start := math.Floor(place([]history.Point{{T: from}})[0].X*ratio) / ratio
+	rest := qt.NewQRectF4(start, 0, float64(g.look.width)-start, float64(g.look.height))
+	defer rest.Delete()
+
+	p := newLayerPainter(g.layer)
+	defer p.Delete()
+	defer p.End()
+	p.SetCompositionMode(qt.QPainter__CompositionMode_Clear)
+	transparent := qt.NewQColor2(qt.Transparent)
+	defer transparent.Delete()
+	p.FillRect4(rest, transparent)
+	p.SetCompositionMode(qt.QPainter__CompositionMode_SourceOver)
+	p.SetClipRect(rest)
+	for i, l := range g.lines {
+		placed := place(l.points)
+		g.curves[i].note(l, placed)
+		first := 0
+		for j, at := range placed {
+			if at.X <= start-strokeMargin {
+				first = j
+			}
+		}
+		strokeLine(p, g.curves[i].pen, placed[first:])
+	}
+	return true
 }
 
 // drawLines draws the lines of the graph in the rectangle of its grid: the
@@ -320,7 +442,7 @@ func (g *graph) drawLines(p *qt.QPainter, r chart.Rect) {
 	p.DrawPixmap9(0, 0, g.layer)
 	p.Translate2(-dx, 0)
 	for _, c := range g.curves {
-		if c.hold && g.now.After(c.lastAt) {
+		if c.hold && g.now.After(c.newest.T) {
 			p.SetPenWithPen(c.pen)
 			drawLine(p, c.last.X+dx, c.last.Y, r.X+r.W, c.last.Y)
 		}

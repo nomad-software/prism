@@ -98,8 +98,8 @@ move by a pixel (at most 60 times a second), so a narrow window or a long
 interval draws them less often, and not at all while they are not shown:
 on the Processes tab or with the window minimized. The grid and its labels
 are drawn once, and again only when the size, scale, theme or colours
-change, and the lines are drawn once at each reading and slid along between
-readings.
+change. The lines are slid along between readings, and each reading draws
+only what is new of them, unless the scale, size or colours change.
 
 ### Where the statistics come from
 

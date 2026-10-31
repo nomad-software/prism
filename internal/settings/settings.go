@@ -1,6 +1,6 @@
 // Package settings stores the settings of the program, which are kept
-// between runs in a JSON file where ApeMail keeps its own: in a folder for
-// the program in the place the system has for the configuration of programs.
+// between runs in a JSON file, in a folder for the program in the place the
+// system has for the configuration of programs, as ApeMail keeps its own.
 // It has no dependency on the UI.
 package settings
 

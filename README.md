@@ -50,30 +50,8 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
   its fastest. The legend says, beside each adapter's name, how fast it is
   downloading (↓) and uploading (↑), with how much it has in all in brackets.
   Adapters can be hidden in the settings.
-- **Processes**: every process, with its PID, name (in full, though Linux
-  keeps only the first 15 characters of it with the process's statistics),
-  how busy it is (as top counts it, a percentage of one processor, so more
-  than 100% for one running on several; the heading says how many there are,
-  as "CPU (8 cores)"), how many processors' worth of time that is (Cores
-  Used, 2.5 for 250%), and how much memory it has ("—" for the kernel's own
-  threads, which have none of their own to count). Click a heading to sort
-  by it, and again to reverse it; it starts with the busiest first, and
-  keeps the order chosen for next time. The PID column is as wide as the
-  largest PID, and the others share the rest of the width, the name two
-  fifths of it. Type in the search box above the table to narrow it, as you
-  type, to the processes whose names (in any case) or PIDs hold what is
-  typed; the search is not kept for next time, and has the cursor whenever
-  the tab is shown, so you can start typing at once. Below the table, at the
-  left, choose to see the processes of people (user processes, the default),
-  the system's (those of root, of services and of the kernel) or all of
-  them, and to see them as a list or as a tree, each process under the one
-  that started it, whose branches fold and open with the arrows beside the
-  names and stay as they are left; these choices are kept for next time too.
-  In a tree, a process found by a search whose parent is not found is at the
-  top. Choose a process, then a signal (SIGKILL unless another is chosen),
-  and **Send Signal** sends it; the status bar says whether it was sent. A
-  process that has ended in the meantime is not sent it, even if its PID has
-  been given to another.
+- **Processes**: every process, and a way to send the one chosen a signal;
+  see [The Processes tab](#the-processes-tab).
 
 A status bar along the bottom of the window has a handle in its corner to
 drag the window bigger or smaller by.
@@ -100,6 +78,34 @@ on the Processes tab or with the window minimized. The grid and its labels
 are drawn once, and again only when the size, scale, theme or colours
 change. The lines are slid along between readings, and each reading draws
 only what is new of them, unless the scale, size or colours change.
+
+### The Processes tab
+
+- **Columns**: the PID; the name, in full, though Linux keeps only the first
+  15 characters of it with the process's statistics; CPU, how busy it is as
+  top counts it, a percentage of one processor, so more than 100% for one
+  running on several, with a heading that says how many there are, as
+  "CPU (8 cores)"; Cores Used, how many processors' worth of time that is,
+  2.5 for 250%; and Memory, "—" for the kernel's own threads, which have none
+  of their own to count. The PID column is as wide as the largest PID, and
+  the others share the rest of the width, the name two fifths of it.
+- **Sorting**: click a heading to sort by it, and again to reverse it. It
+  starts with the busiest first, and keeps the order chosen for next time.
+- **Searching**: type in the box above the table to narrow it, as you type,
+  to the processes whose names (in any case) or PIDs hold what is typed. The
+  box has the cursor whenever the tab is shown, so you can start typing at
+  once, and the search is not kept for next time.
+- **Which, and how**: below the table, at the left, choose to see the
+  processes of people (User, the default), the system's (System: those of
+  root, of services and of the kernel) or All of them, and to see them as a
+  List or as a Tree, each process under the one that started it. Branches
+  fold and open with the arrows beside the names, and stay as they are left;
+  a process found by a search whose parent is not found is at the top. These
+  choices are kept for next time too.
+- **Signals**: choose a process, then a signal (SIGKILL unless another is
+  chosen), and **Send Signal** sends it; the status bar says whether it was
+  sent. A process that has ended in the meantime is not sent it, even if its
+  PID has been given to another.
 
 ### Where the statistics come from
 
@@ -172,7 +178,7 @@ folder.
 On Linux, every time it starts, Prism adds itself to the desktop's
 applications, so that it can be started from the menu and kept in a dock or
 sidebar: it writes `~/.local/share/applications/prism.desktop` and its icon
-to `~/.local/share/icons/hicolor/256x256/apps/prism.png` (or under
+to `~/.local/share/icons/hicolor/128x128/apps/prism.png` (or under
 `$XDG_DATA_HOME`). The entry starts the copy that ran last, wherever it is,
 the AppImage if it was run from one. If the desktop keeps showing an older
 icon after an update, it has the old one cached: logging out and in again
@@ -180,8 +186,9 @@ clears it (on KDE, so does deleting `~/.cache/icon-cache.kcache`).
 
 ## Requirements
 
-Prism is developed and tested on Linux. There is a release for macOS on
-Apple Silicon (see [macOS app](#macos-app)).
+Prism runs on Linux and macOS, and on no other system. It is developed and
+tested on Linux; there is a release for macOS on Apple Silicon (see
+[macOS app](#macos-app)).
 
 Building needs:
 
@@ -223,7 +230,7 @@ This should print a version starting with 6.
 Running a built binary on another machine only needs the Qt 6 runtime
 libraries (`qt6-base` on Arch, `libqt6widgets6` on Debian and Ubuntu,
 `qt6-qtbase` on Fedora, `libQt6Widgets6` on openSUSE). The icons are
-Prism's own, drawn in Go, so no icon theme is needed.
+Prism's own, built in, so no icon theme is needed.
 
 ## Building
 
@@ -235,9 +242,12 @@ Later builds use the Go build cache and take a few seconds.
 make build      # builds ./prism
 make run        # builds and runs it
 make test       # runs the tests
-make vet
+make vet        # runs go vet
 make screenshot # draws docs/screenshot.png
-make icons      # draws the icons, after their drawing changes
+make icons      # draws the macOS icon, after the program's icon changes
+make appimage   # builds the AppImage (see below)
+make macos      # builds the macOS app, on a Mac (see below)
+make clean      # removes ./prism and build/
 ```
 
 The about box shows the version Go records from git when it builds: the tag,
@@ -314,8 +324,7 @@ It is built by a GitHub workflow (`.github/workflows/macos.yml`), which runs
 - `internal/settings` loads and saves the settings, and gives colours.
 - `internal/instance` keeps to one copy running, and hands over to it.
 - `internal/desktop` writes the Linux desktop entry and its icon.
-- `internal/appicon` draws the icon, a prism: a triangle divided into
-  Solarized red, blue and green thirds.
+- `internal/appicon` holds the icon, a glass prism, built into the program.
 - `internal/ui` is the window, the graphs and legends it paints, the table
   of processes, the settings dialog and the about box.
 - `packaging` has the scripts and files that make the AppImage and the macOS

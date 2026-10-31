@@ -61,12 +61,10 @@ type processes struct {
 	section
 	usage usage.Processes
 	// list is every process read, and shown those the tree lists, in its
-	// order from the top, each before those it started, with how deep in the
-	// tree each is.
-	list   []usage.Process
-	shown  []usage.Process
-	depths []int
-	tree   *qt.QTreeWidget
+	// order from the top, each before those it started.
+	list  []usage.Process
+	shown []usage.Process
+	tree  *qt.QTreeWidget
 	// rows are the indexes in shown of the processes of the items of the
 	// tree, by the items' addresses.
 	rows map[unsafe.Pointer]int
@@ -118,6 +116,14 @@ func (w *Window) makeProcesses() {
 	p.search.OnTextChanged(func(string) { w.showProcesses() })
 	p.layout.AddWidget(p.search.QWidget)
 
+	w.makeProcessTree()
+	p.layout.AddWidget2(p.tree.QWidget, 1)
+	p.layout.AddLayout(w.processControls().QLayout)
+}
+
+// makeProcessTree makes the tree of the processes, sorted as they last were.
+func (w *Window) makeProcessTree() {
+	p := &w.processes
 	p.folded = map[stats.ProcessKey]bool{}
 	p.tree = qt.NewQTreeWidget2()
 	p.tree.SetColumnCount(processColumns)
@@ -162,8 +168,12 @@ func (w *Window) makeProcesses() {
 	p.tree.OnItemSelectionChanged(w.chooseProcess)
 	p.tree.OnItemCollapsed(func(item *qt.QTreeWidgetItem) { p.fold(item, true) })
 	p.tree.OnItemExpanded(func(item *qt.QTreeWidgetItem) { p.fold(item, false) })
-	p.layout.AddWidget2(p.tree.QWidget, 1)
+}
 
+// processControls returns the row below the tree: at its left which processes
+// are shown and how, and at its right what sends the one chosen a signal.
+func (w *Window) processControls() *qt.QHBoxLayout {
+	p := &w.processes
 	p.signals = qt.NewQComboBox2()
 	for _, s := range stats.Signals() {
 		p.signals.AddItem(fmt.Sprintf("%s (%d)", s.Name, s.Number))
@@ -181,7 +191,7 @@ func (w *Window) makeProcesses() {
 	row.AddWidget(qt.NewQLabel3("Signal").QWidget)
 	row.AddWidget(p.signals.QWidget)
 	row.AddWidget(p.send.QWidget)
-	p.layout.AddLayout(row.QLayout)
+	return row
 }
 
 // processAlignment returns how the column of the processes, and its
@@ -299,11 +309,12 @@ func (w *Window) showProcesses() {
 	p.shown = filterProcesses(p.list, w.config.ProcessFilter, p.search.Text())
 	column, descending := header.SortIndicatorSection(), header.SortIndicatorOrder() == qt.DescendingOrder
 	tree := w.config.ProcessView == settings.ViewTree
+	var depths []int
 	if tree {
-		p.shown, p.depths = treeOrder(p.shown, column, descending)
+		p.shown, depths = treeOrder(p.shown, column, descending)
 	} else {
 		sortProcesses(p.shown, column, descending)
-		p.depths = make([]int, len(p.shown))
+		depths = make([]int, len(p.shown))
 	}
 
 	scroll := p.tree.VerticalScrollBar().Value()
@@ -324,7 +335,7 @@ func (w *Window) showProcesses() {
 		for col := range processColumns {
 			item.SetTextAlignment(col, int(processAlignment(col)))
 		}
-		depth := min(p.depths[i], len(parents))
+		depth := min(depths[i], len(parents))
 		parents = parents[:depth]
 		if depth == 0 {
 			p.tree.AddTopLevelItem(item)
@@ -513,10 +524,9 @@ func (w *Window) chooseProcess() {
 	p.enableSend()
 }
 
-// enableSend lets a signal be sent while a process is chosen, and there are
-// signals to send.
+// enableSend lets a signal be sent while a process is chosen.
 func (p *processes) enableSend() {
-	p.send.SetEnabled(p.chosen != nil && p.signals.Count() > 0)
+	p.send.SetEnabled(p.chosen != nil)
 }
 
 // sendSignal sends the signal chosen to the process chosen, and says in the

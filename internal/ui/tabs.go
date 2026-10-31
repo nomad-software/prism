@@ -99,9 +99,7 @@ func tabIcon(colour *qt.QColor, ratio float64, draw func(*qt.QPainter)) *qt.QIco
 	pixmap := qt.NewQPixmap2(side, side)
 	defer pixmap.Delete()
 	pixmap.SetDevicePixelRatio(ratio)
-	clear := qt.NewQColor2(qt.Transparent)
-	pixmap.FillWithFillColor(clear)
-	clear.Delete()
+	clearPixmap(pixmap)
 
 	p := qt.NewQPainter2(pixmap.QPaintDevice)
 	p.SetRenderHint(qt.QPainter__Antialiasing)

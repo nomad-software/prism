@@ -103,8 +103,8 @@ func (l *legend) entryWidth() int {
 	return swatchWidth + legendGap + l.labelWidth + legendGap + l.valueWidth
 }
 
-// entryHeight is how tall each entry of a legend is: as tall as its swatch, or as its
-// line of text.
+// entryHeight is how tall each entry of a legend is: as tall as its swatch, or
+// as its line of text.
 func entryHeight(lineHeight int) int {
 	return max(swatchHeight, lineHeight)
 }

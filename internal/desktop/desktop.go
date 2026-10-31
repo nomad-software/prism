@@ -117,11 +117,11 @@ func Install(icon []byte) error {
 
 // Write writes the desktop entry and the icon, as PNG data, into the data
 // folder given: the entry to applications/prism.desktop and the icon to
-// icons/hicolor/256x256/apps/prism.png. Each is written only if it is
+// icons/hicolor/128x128/apps/prism.png. Each is written only if it is
 // not already so, and in a way that leaves the old file whole if it fails.
 func Write(data, exec, class string, icon []byte) error {
 	entry := filepath.Join(data, "applications", Name+".desktop")
-	image := filepath.Join(data, "icons", "hicolor", "256x256", "apps", Name+".png")
+	image := filepath.Join(data, "icons", "hicolor", "128x128", "apps", Name+".png")
 	return errors.Join(
 		writeFile(image, icon),
 		writeFile(entry, []byte(Entry(exec, class, image))),

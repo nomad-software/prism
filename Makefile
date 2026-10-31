@@ -28,11 +28,11 @@ screenshot:
 	mkdir -p docs
 	PRISM_SCREENSHOT=$(CURDIR)/docs/screenshot.png go test -count=1 -timeout $(TEST_TIMEOUT) -run '^TestScreenshot$$' ./internal/ui/
 
-# Draws the program's icon, internal/appicon/appicon.png, and that of the
-# macOS app, packaging/macos/prism.png. Run it again whenever the
-# drawing changes; a test says when it has not been.
+# Draws the icon of the macOS app, packaging/macos/prism.png, from the
+# program's icon, within the margin Apple's grid gives icons. Run it again
+# whenever the icon changes; a test says when it has not been.
 icons:
-	PRISM_ICONS=$(CURDIR) go test -count=1 -timeout $(TEST_TIMEOUT) -run '^TestWriteIcons$$' ./internal/appicon/
+	PRISM_ICONS=$(CURDIR)/packaging go test -count=1 -timeout $(TEST_TIMEOUT) -run '^TestWriteIcons$$' ./internal/ui/
 
 # Packs the program and the Qt libraries it uses into one file that runs
 # without installing anything. Releases are made by the GitHub workflow, on

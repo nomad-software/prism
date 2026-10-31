@@ -60,76 +60,9 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 	d.SetMinimumWidth(settingsLeastWidth)
 	tabs := qt.NewQTabWidget2()
 
-	general := qt.NewQWidget2()
-	generalForm := qt.NewQFormLayout(general)
-	generalForm.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
-	d.cpuInterval = newIntervalBox()
-	d.memoryInterval = newIntervalBox()
-	d.networkInterval = newIntervalBox()
-	d.processesInterval = newIntervalBox()
-	generalForm.AddRowWithWidget(sectionHeading("Update intervals").QWidget)
-	generalForm.AddRow3("CPU", d.cpuInterval.QWidget)
-	generalForm.AddRow3("Memory and swap", d.memoryInterval.QWidget)
-	generalForm.AddRow3("Network", d.networkInterval.QWidget)
-	generalForm.AddRow3("Processes", d.processesInterval.QWidget)
-	generalForm.AddRowWithWidget(note("How often each is read, from a tenth of a second to an hour. " +
-		"A graph spans a minute, or two intervals where they are longer.").QWidget)
-	display := sectionHeading("Display")
-	display.SetContentsMargins(0, 12, 0, 0)
-	generalForm.AddRowWithWidget(display.QWidget)
-	d.cpuMode = qt.NewQComboBox2()
-	addItem(d.cpuMode, "A line for each core", settings.CPUCores)
-	addItem(d.cpuMode, "One line for all cores", settings.CPUTotal)
-	generalForm.AddRow3("CPU", d.cpuMode.QWidget)
-	units := sectionHeading("Units")
-	units.SetContentsMargins(0, 12, 0, 0)
-	generalForm.AddRowWithWidget(units.QWidget)
-	d.sizeUnits = qt.NewQComboBox2()
-	addItem(d.sizeUnits, "Binary (KiB, MiB, GiB)", settings.SizeBinary)
-	addItem(d.sizeUnits, "Decimal (kB, MB, GB)", settings.SizeDecimal)
-	generalForm.AddRow3("Sizes", d.sizeUnits.QWidget)
-	d.rateUnits = qt.NewQComboBox2()
-	addItem(d.rateUnits, "Bytes per second (MiB/s, MB/s)", settings.RateBytes)
-	addItem(d.rateUnits, "Bits per second (Mib/s, Mb/s)", settings.RateBits)
-	generalForm.AddRow3("Network speed", d.rateUnits.QWidget)
-
-	network := qt.NewQWidget2()
-	networkLayout := qt.NewQVBoxLayout(network)
-	networkLayout.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
-	networkLayout.AddWidget(sectionHeading("Adapters").QWidget)
-	networkLayout.AddWidget(note("Those ticked are shown in the network graphs and legend, by their alias where they have one. " +
-		"Every adapter that has been seen is listed, and keeps its choices for when it is seen again.").QWidget)
-	d.shown = d.adapterTable()
-	networkLayout.AddWidget2(d.shown.QWidget, 1)
-
-	ui := qt.NewQWidget2()
-	coloursLayout := qt.NewQVBoxLayout(ui)
-	coloursLayout.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
-	coloursLayout.AddWidget(sectionHeading("Appearance").QWidget)
-	themeForm := qt.NewQFormLayout2()
-	d.theme = qt.NewQComboBox2()
-	for _, t := range themes {
-		addItem(d.theme, t.label, t.name)
-	}
-	themeForm.AddRow3("Theme", d.theme.QWidget)
-	coloursLayout.AddLayout(themeForm.QLayout)
-	colourHeading := sectionHeading("Colours")
-	colourHeading.SetContentsMargins(0, 12, 0, 0)
-	coloursLayout.AddWidget(colourHeading.QWidget)
-	// The table has what height the tab has left, and scrolls.
-	d.colourList = d.colourTable(cores)
-	d.colourList.SetMinimumHeight(colourTableHeight)
-	coloursLayout.AddWidget2(d.colourList.QWidget, 1)
-	d.resetColours = qt.NewQPushButton3("Use Default Colours")
-	d.resetColours.OnClicked(func() { d.showColours(defaultsFor(current).Colours) })
-	resetRow := qt.NewQHBoxLayout2()
-	resetRow.AddStretch()
-	resetRow.AddWidget(d.resetColours.QWidget)
-	coloursLayout.AddLayout(resetRow.QLayout)
-
-	tabs.AddTab(plainPage(general), "General")
-	tabs.AddTab(plainPage(network), "Network")
-	tabs.AddTab(plainPage(ui), "User interface")
+	tabs.AddTab(plainPage(d.generalTab()), "General")
+	tabs.AddTab(plainPage(d.networkTab()), "Network")
+	tabs.AddTab(plainPage(d.interfaceTab(current, cores)), "User interface")
 
 	d.show(current)
 
@@ -152,6 +85,81 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 	d.OnFinished(func(int) { d.DeleteLater() })
 	d.Open()
 	return d
+}
+
+// generalTab makes the tab of how often each statistic is read, how the
+// processors are shown, and the units.
+func (d *settingsDialog) generalTab() *qt.QWidget {
+	general := qt.NewQWidget2()
+	generalForm := qt.NewQFormLayout(general)
+	generalForm.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
+	d.cpuInterval = newIntervalBox()
+	d.memoryInterval = newIntervalBox()
+	d.networkInterval = newIntervalBox()
+	d.processesInterval = newIntervalBox()
+	generalForm.AddRowWithWidget(sectionHeading("Update intervals").QWidget)
+	generalForm.AddRow3("CPU", d.cpuInterval.QWidget)
+	generalForm.AddRow3("Memory and swap", d.memoryInterval.QWidget)
+	generalForm.AddRow3("Network", d.networkInterval.QWidget)
+	generalForm.AddRow3("Processes", d.processesInterval.QWidget)
+	generalForm.AddRowWithWidget(note("How often each is read, from a tenth of a second to an hour. " +
+		"A graph spans a minute, or two intervals where they are longer.").QWidget)
+	generalForm.AddRowWithWidget(laterHeading("Display").QWidget)
+	d.cpuMode = qt.NewQComboBox2()
+	addItem(d.cpuMode, "A line for each core", settings.CPUCores)
+	addItem(d.cpuMode, "One line for all cores", settings.CPUTotal)
+	generalForm.AddRow3("CPU", d.cpuMode.QWidget)
+	generalForm.AddRowWithWidget(laterHeading("Units").QWidget)
+	d.sizeUnits = qt.NewQComboBox2()
+	addItem(d.sizeUnits, "Binary (KiB, MiB, GiB)", settings.SizeBinary)
+	addItem(d.sizeUnits, "Decimal (kB, MB, GB)", settings.SizeDecimal)
+	generalForm.AddRow3("Sizes", d.sizeUnits.QWidget)
+	d.rateUnits = qt.NewQComboBox2()
+	addItem(d.rateUnits, "Bytes per second (MiB/s, MB/s)", settings.RateBytes)
+	addItem(d.rateUnits, "Bits per second (Mib/s, Mb/s)", settings.RateBits)
+	generalForm.AddRow3("Network speed", d.rateUnits.QWidget)
+	return general
+}
+
+// networkTab makes the tab of the network adapters.
+func (d *settingsDialog) networkTab() *qt.QWidget {
+	network := qt.NewQWidget2()
+	networkLayout := qt.NewQVBoxLayout(network)
+	networkLayout.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
+	networkLayout.AddWidget(sectionHeading("Adapters").QWidget)
+	networkLayout.AddWidget(note("Those ticked are shown in the network graphs and legend, by their alias where they have one. " +
+		"Every adapter that has been seen is listed, and keeps its choices for when it is seen again.").QWidget)
+	d.shown = d.adapterTable()
+	networkLayout.AddWidget2(d.shown.QWidget, 1)
+	return network
+}
+
+// interfaceTab makes the tab of the theme and the colours, whose defaults are
+// worked out from the settings current.
+func (d *settingsDialog) interfaceTab(current settings.Settings, cores int) *qt.QWidget {
+	ui := qt.NewQWidget2()
+	coloursLayout := qt.NewQVBoxLayout(ui)
+	coloursLayout.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
+	coloursLayout.AddWidget(sectionHeading("Appearance").QWidget)
+	themeForm := qt.NewQFormLayout2()
+	d.theme = qt.NewQComboBox2()
+	for _, t := range themes {
+		addItem(d.theme, t.label, t.name)
+	}
+	themeForm.AddRow3("Theme", d.theme.QWidget)
+	coloursLayout.AddLayout(themeForm.QLayout)
+	coloursLayout.AddWidget(laterHeading("Colours").QWidget)
+	// The table has what height the tab has left, and scrolls.
+	d.colourList = d.colourTable(cores)
+	d.colourList.SetMinimumHeight(colourTableHeight)
+	coloursLayout.AddWidget2(d.colourList.QWidget, 1)
+	d.resetColours = qt.NewQPushButton3("Use Default Colours")
+	d.resetColours.OnClicked(func() { d.showColours(defaultsFor(current).Colours) })
+	resetRow := qt.NewQHBoxLayout2()
+	resetRow.AddStretch()
+	resetRow.AddWidget(d.resetColours.QWidget)
+	coloursLayout.AddLayout(resetRow.QLayout)
+	return ui
 }
 
 // The columns of the table of network adapters.
@@ -380,6 +388,14 @@ func sectionHeading(title string) *qt.QLabel {
 	defer font.Delete()
 	font.SetBold(true)
 	label.SetFont(font)
+	return label
+}
+
+// laterHeading returns the heading of a section of a tab that follows another,
+// with room above it.
+func laterHeading(title string) *qt.QLabel {
+	label := sectionHeading(title)
+	label.SetContentsMargins(0, 12, 0, 0)
 	return label
 }
 

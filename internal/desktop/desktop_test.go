@@ -9,14 +9,14 @@ import (
 )
 
 func TestEntry(t *testing.T) {
-	entry := Entry("/home/me/bin/prism", "prism", "/home/me/.local/share/icons/hicolor/256x256/apps/prism.png")
+	entry := Entry("/home/me/bin/prism", "prism", "/home/me/.local/share/icons/hicolor/128x128/apps/prism.png")
 	for _, line := range []string{
 		"[Desktop Entry]",
 		"Type=Application",
 		"Name=Prism",
 		"Exec=/home/me/bin/prism",
 		"TryExec=/home/me/bin/prism",
-		"Icon=/home/me/.local/share/icons/hicolor/256x256/apps/prism.png",
+		"Icon=/home/me/.local/share/icons/hicolor/128x128/apps/prism.png",
 		"StartupWMClass=prism",
 	} {
 		if !strings.Contains(entry, line+"\n") {
@@ -78,7 +78,7 @@ func TestDir(t *testing.T) {
 func TestWrite(t *testing.T) {
 	data := t.TempDir()
 	entryPath := filepath.Join(data, "applications", "prism.desktop")
-	iconPath := filepath.Join(data, "icons", "hicolor", "256x256", "apps", "prism.png")
+	iconPath := filepath.Join(data, "icons", "hicolor", "128x128", "apps", "prism.png")
 
 	if err := Write(data, "/opt/one/prism", "prism", []byte("png")); err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestInstall(t *testing.T) {
 	}
 	self, _ := os.Executable()
 	// The icon is named by its path, not looked for in the theme.
-	image := filepath.Join(data, "icons", "hicolor", "256x256", "apps", "prism.png")
+	image := filepath.Join(data, "icons", "hicolor", "128x128", "apps", "prism.png")
 	for _, line := range []string{`Exec="/home/me/Apps/My Prism.AppImage"`, "Icon=" + image, "StartupWMClass=" + filepath.Base(self)} {
 		if !strings.Contains(string(entry), line+"\n") {
 			t.Errorf("no %q in\n%s", line, entry)

@@ -449,7 +449,7 @@ func TestSettingsDialog(t *testing.T) {
 
 	var got *settings.Settings
 	mainthread.Wait(func() {
-		d := newSettingsDialog(nil, current, 3, []string{"eth0", "wlan0"}, func(s settings.Settings) { got = &s })
+		d := newSettingsDialog(nil, current, 3, []string{"eth0", "wlan0"}, 16, func(s settings.Settings) { got = &s })
 		if d.shown.RowCount() != 2 || d.shown.Item(0, colAdapterName).CheckState() != qt.Checked || d.shown.Item(1, colAdapterName).CheckState() != qt.Unchecked {
 			t.Error("the adapters shown are not ticked")
 		}
@@ -551,7 +551,7 @@ func TestSettingsDialogUseDefaultColours(t *testing.T) {
 	current.Colours.Network = map[string]string{"eth0": "#222222"}
 	current.HiddenAdapters = []string{"eth0"}
 	mainthread.Wait(func() {
-		d := newSettingsDialog(nil, current, 1, []string{"eth0"}, func(settings.Settings) {})
+		d := newSettingsDialog(nil, current, 1, []string{"eth0"}, 16, func(settings.Settings) {})
 		defer d.Reject()
 		if d.resetColours.Text() != "Use Default Colours" {
 			t.Errorf("reset button = %q", d.resetColours.Text())
@@ -626,7 +626,7 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 
 	var got *settings.Settings
 	mainthread.Wait(func() {
-		d := newSettingsDialog(nil, current, 1, []string{"eth0", "wlan0"}, func(s settings.Settings) { got = &s })
+		d := newSettingsDialog(nil, current, 1, []string{"eth0", "wlan0"}, 16, func(s settings.Settings) { got = &s })
 		d.box.Button(qt.QDialogButtonBox__RestoreDefaults).Click()
 		if d.cpuInterval.Value() != settings.DefaultIntervals.CPU || currentData(d.theme) != "" || d.grid.colour != settings.DefaultGrid ||
 			d.shown.Item(0, colAdapterAlias).Text() != "" {
@@ -656,7 +656,7 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 func TestSettingsDialogCancel(t *testing.T) {
 	called := false
 	mainthread.Wait(func() {
-		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, func(settings.Settings) { called = true })
+		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, 16, func(settings.Settings) { called = true })
 		if d.adapters != nil {
 			t.Error("there are adapter buttons with no adapters")
 		}
@@ -823,21 +823,12 @@ func TestLegendClick(t *testing.T) {
 		l.Resize(1000, 10)
 		l.show([]entry{
 			{"#ff0000", "CPU1", "1.0%", func(c string) { set = append(set, c) }},
-			{"#00ff00", "CPU2", "2.0%", nil},
 		})
 		fm := l.FontMetrics()
 		x0, y0 := l.swatchPlace(0, l.grid(), fm.Height())
-		x1, y1 := l.swatchPlace(1, l.grid(), fm.Height())
 
-		if i := l.settableAt(x0+1, y0+1); i != 0 {
-			t.Errorf("settableAt the first swatch = %d", i)
-		}
-		// An entry without a setter is not a shortcut.
-		if i := l.settableAt(x1+1, y1+1); i != -1 {
-			t.Errorf("settableAt the second swatch = %d", i)
-		}
-		if l.click(x1+1, y1+1) || l.click(x0+swatchWidth+legendGap+1, y0+1) {
-			t.Error("a click off a settable swatch was taken")
+		if l.click(x0+swatchWidth+legendGap+1, y0+1) {
+			t.Error("a click off a swatch was taken")
 		}
 		if len(*asked) != 0 {
 			t.Errorf("asked for %q", *asked)

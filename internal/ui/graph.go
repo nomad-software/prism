@@ -72,7 +72,7 @@ type look struct {
 }
 
 // curve is what is known of a line of a graph on the layer: its colour and
-// pen, and its newest point, newest, which is at last on the layer. A line
+// pen, its newest point, and last, where that point is on the layer. A line
 // that holds, and has a point, has hold set, and is drawn on from there to the
 // right edge.
 type curve struct {
@@ -157,8 +157,8 @@ const (
 const labelOpacity = 0.5
 
 // plotRect returns where the grid goes in a graph of the size, with the
-// font metrics of its labels: right of them is the widest label, and below
-// it a line of them.
+// font metrics of its labels: to its right is the widest label, and below it
+// a line of them.
 func plotRect(width, height int, labels []string, fm *qt.QFontMetrics) chart.Rect {
 	widest := 0
 	for _, l := range labels {

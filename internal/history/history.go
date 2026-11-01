@@ -53,6 +53,15 @@ func (s *Series) Trim(before time.Time) {
 	}
 }
 
+// Record adds a value measured at t to a line of a graph of the span: a new
+// line starts at fill, across the whole graph, and what has gone off the left
+// of the graph is dropped.
+func (s *Series) Record(t time.Time, span time.Duration, fill, v float64) {
+	s.Fill(t, span, fill)
+	s.Add(t, v)
+	s.Trim(t.Add(-span))
+}
+
 // Points returns the values, oldest first. They are not to be changed.
 func (s *Series) Points() []Point {
 	return s.points

@@ -404,7 +404,7 @@ func processCells(p usage.Process, u chart.Units) [processColumns]string {
 		cells[colProcessCPU] = chart.FormatPercent(p.Busy)
 		cells[colProcessCores] = strconv.FormatFloat(p.Busy/100, 'f', 1, 64)
 	}
-	if !p.Restricted && !p.Kernel {
+	if p.MemoryKnown() {
 		cells[colProcessMemory] = u.Size(float64(p.Memory))
 	}
 	return cells
@@ -429,7 +429,7 @@ func sortProcesses(list []usage.Process, column int, descending bool) {
 			// The cores used are how busy it was, in processors' worth.
 			c = cmp.Compare(known(a.Measured, a.Busy), known(b.Measured, b.Busy))
 		case colProcessMemory:
-			c = cmp.Compare(known(!a.Restricted && !a.Kernel, float64(a.Memory)), known(!b.Restricted && !b.Kernel, float64(b.Memory)))
+			c = cmp.Compare(known(a.MemoryKnown(), float64(a.Memory)), known(b.MemoryKnown(), float64(b.Memory)))
 		}
 		if descending {
 			c = -c

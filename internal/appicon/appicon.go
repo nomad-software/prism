@@ -4,10 +4,10 @@ package appicon
 
 import _ "embed"
 
-// PNG is the program's icon, a PNG Size pixels square.
+// PNG is the program's icon, a PNG size pixels square.
 //
 //go:embed appicon.png
 var PNG []byte
 
-// Size is the width and height of PNG.
-const Size = 128
+// size is the width and height of PNG.
+const size = 128

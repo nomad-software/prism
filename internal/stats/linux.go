@@ -86,39 +86,43 @@ func (l Linux) Processes() ([]Process, error) {
 		if err != nil || pid <= 0 {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name(), "stat"))
-		if err != nil {
-			continue
+		if p, err := readProcess(filepath.Join(dir, e.Name())); err == nil {
+			p.PID, p.Memory = pid, p.Memory*page
+			processes = append(processes, p)
 		}
-		p, err := parseProcessStat(data)
-		if err != nil {
-			continue
-		}
-		data, err = os.ReadFile(filepath.Join(dir, e.Name(), "statm"))
-		if err != nil {
-			continue
-		}
-		resident, err := parseStatm(data)
-		if err != nil {
-			continue
-		}
-		data, err = os.ReadFile(filepath.Join(dir, e.Name(), "status"))
-		if err != nil {
-			continue
-		}
-		uid, err := parseStatusUID(data)
-		if err != nil {
-			continue
-		}
-		if len(p.Name) == commLength {
-			if data, err := os.ReadFile(filepath.Join(dir, e.Name(), "cmdline")); err == nil {
-				p.Name = fullName(p.Name, data)
-			}
-		}
-		p.PID, p.UID, p.Memory = pid, uid, resident*page
-		processes = append(processes, p)
 	}
 	return processes, nil
+}
+
+// readProcess reads the process whose folder in /proc is at dir, all but its
+// PID, with its memory in pages.
+func readProcess(dir string) (Process, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "stat"))
+	if err != nil {
+		return Process{}, err
+	}
+	p, err := parseProcessStat(data)
+	if err != nil {
+		return Process{}, err
+	}
+	if data, err = os.ReadFile(filepath.Join(dir, "statm")); err != nil {
+		return Process{}, err
+	}
+	if p.Memory, err = parseStatm(data); err != nil {
+		return Process{}, err
+	}
+	if data, err = os.ReadFile(filepath.Join(dir, "status")); err != nil {
+		return Process{}, err
+	}
+	if p.UID, err = parseStatusUID(data); err != nil {
+		return Process{}, err
+	}
+	if len(p.Name) == commLength {
+		if data, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
+			p.Name = fullName(p.Name, data)
+		}
+	}
+	return p, nil
 }
 
 // Signal sends the signal to the process, if /proc/<pid>/stat says it

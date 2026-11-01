@@ -23,22 +23,21 @@ func main() {
 	// desktop's leave to take the focus. Nothing else is done before, so
 	// that it leaves at once.
 	var claim *instance.Instance
-	if dir, err := instance.Dir(); err == nil {
+	dir, err := instance.Dir()
+	if err == nil {
 		claim, err = instance.Claim(dir, os.Getenv("XDG_ACTIVATION_TOKEN"))
-		switch {
-		case errors.Is(err, instance.ErrRunning):
-			return
-		case errors.Is(err, instance.ErrNoAnswer):
-			fmt.Fprintln(os.Stderr, "prism:", err)
-			os.Exit(1)
-		case err != nil:
-			// The program runs, as it would without the check.
-			fmt.Fprintln(os.Stderr, "prism: another copy could be started beside this one:", err)
-		default:
-			defer claim.Close()
-		}
-	} else if !errors.Is(err, errors.ErrUnsupported) {
+	}
+	switch {
+	case errors.Is(err, instance.ErrRunning):
+		return
+	case errors.Is(err, instance.ErrNoAnswer):
+		fmt.Fprintln(os.Stderr, "prism:", err)
+		os.Exit(1)
+	case err != nil:
+		// The program runs, as it would without the check.
 		fmt.Fprintln(os.Stderr, "prism: another copy could be started beside this one:", err)
+	default:
+		defer claim.Close()
 	}
 
 	// The settings are kept where the system keeps the configuration of

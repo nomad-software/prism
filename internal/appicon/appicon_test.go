@@ -13,7 +13,7 @@ func TestPNG(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b := img.Bounds(); b.Dx() != Size || b.Dy() != Size {
-		t.Fatalf("the icon is %v, want %d square", b, Size)
+	if b := img.Bounds(); b.Dx() != size || b.Dy() != size {
+		t.Fatalf("the icon is %v, want %d square", b, size)
 	}
 }

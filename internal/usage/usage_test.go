@@ -21,7 +21,7 @@ func TestBusy(t *testing.T) {
 		{"busy back", stats.CPUTimes{Busy: 50, Idle: 5}, stats.CPUTimes{Busy: 5, Idle: 50}, 0},
 		{"idle back", stats.CPUTimes{Busy: 5, Idle: 50}, stats.CPUTimes{Busy: 50, Idle: 5}, 0},
 	} {
-		if got := Busy(c.before, c.after); got != c.want {
+		if got := busy(c.before, c.after); got != c.want {
 			t.Errorf("%s: Busy = %v, want %v", c.name, got, c.want)
 		}
 	}

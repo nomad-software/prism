@@ -962,6 +962,72 @@ func TestMemoryScaleFitsSwap(t *testing.T) {
 	})
 }
 
+func TestMemoryScale(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	const gib = 1 << 30
+	tw.source.set(func(f *fakeSource) {
+		// What a computer sold with 32 GB says it has.
+		f.memory = stats.Memory{Total: 33583353856, Used: 15.5e9}
+	})
+	mainthread.Wait(func() {
+		tw.sampleMemory()
+		config := tw.config
+		config.SizeUnits = settings.SizeDecimal
+		tw.applySettings(config)
+		// By default the scale is the power of 2 the memory comes to.
+		if top := tw.memory.graph.top; top != 32e9 {
+			t.Errorf("memory graph top = %v, want 32 GB", top)
+		}
+		if got := tw.memory.graph.labels[chart.Rows]; got != "32.0 GB" {
+			t.Errorf("top label = %q", got)
+		}
+		if got := tw.memory.legend.entries[0].value; !strings.HasPrefix(got, "15.5 GB ") {
+			t.Errorf("memory = %q", got)
+		}
+
+		// The dialog shows the default, which is not kept as a choice.
+		d := tw.editSettings()
+		defer d.Reject()
+		if got, suffix := d.memoryMax.Value(), d.memoryMax.Suffix(); got != 32 || suffix != " GB" {
+			t.Errorf("maximum memory shows %d%s", got, suffix)
+		}
+		if got := d.chosen(tw.config).MemoryMax; got != 0 {
+			t.Errorf("the default is kept as %d", got)
+		}
+
+		// A maximum can be chosen.
+		d.memoryMax.SetValue(64)
+		tw.applySettings(d.chosen(tw.config))
+		if tw.config.MemoryMax != 64 || tw.memory.graph.top != 64e9 {
+			t.Errorf("maximum = %d, top = %v, want 64 GB", tw.config.MemoryMax, tw.memory.graph.top)
+		}
+
+		// The scale rises for more in use than a maximum chosen.
+		d.memoryMax.SetValue(8)
+		tw.applySettings(d.chosen(tw.config))
+		if top := tw.memory.graph.top; top != 15.5e9 {
+			t.Errorf("memory graph top = %v, want 15.5 GB", top)
+		}
+
+		// In binary units the same number is of GiB.
+		selectData(d.sizeUnits, settings.SizeBinary)
+		if got := d.memoryMax.Suffix(); got != " GiB" {
+			t.Errorf("binary suffix = %q", got)
+		}
+		d.memoryMax.SetValue(32)
+		tw.applySettings(d.chosen(tw.config))
+		if top := tw.memory.graph.top; top != 32*gib {
+			t.Errorf("memory graph top = %v, want 32 GiB", top)
+		}
+
+		// Defaults are restored.
+		d.show(defaultsFor(tw.config))
+		if got := d.memoryMax.Value(); got != 32 {
+			t.Errorf("restored maximum = %d, want 32", got)
+		}
+	})
+}
+
 func TestSettingsListEveryCore(t *testing.T) {
 	for _, cores := range []int{1, 4, 16, 64} {
 		tw := newTestWindow(t, nil)
@@ -995,7 +1061,7 @@ func TestSettingsKeepUnlistedCores(t *testing.T) {
 	var got *settings.Settings
 	mainthread.Wait(func() {
 		// A computer with four cores, of settings from one with more.
-		d := newSettingsDialog(nil, current, 4, nil, func(s settings.Settings) { got = &s })
+		d := newSettingsDialog(nil, current, 4, nil, 16, func(s settings.Settings) { got = &s })
 		d.cores[0].set("#aaaaaa")
 		d.box.Button(qt.QDialogButtonBox__Ok).Click()
 	})
@@ -1104,7 +1170,7 @@ func labels(o *qt.QObject) []*qt.QLabel {
 func TestSettingsIntervalNote(t *testing.T) {
 	// The note on the intervals says what range the boxes take.
 	mainthread.Wait(func() {
-		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, func(settings.Settings) {})
+		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, 16, func(settings.Settings) {})
 		defer d.Reject()
 		found := false
 		for _, label := range labels(d.QObject) {

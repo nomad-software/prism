@@ -1,6 +1,6 @@
 // Package settings stores the settings of the program, which are kept
 // between runs in a JSON file, in a folder for the program in the place the
-// system has for the configuration of programs, as ApeMail keeps its own.
+// system has for the configuration of programs.
 // It has no dependency on the UI.
 package settings
 
@@ -26,6 +26,10 @@ const (
 	MinInterval = 0.1
 	MaxInterval = 60 * 60
 )
+
+// MaxMemoryMax is the most the top of the memory graph can be chosen to be, in
+// GB or GiB.
+const MaxMemoryMax = 1 << 20
 
 // DefaultIntervals are the intervals the statistics are read at unless set:
 // the processors and memory each second, the network adapters and the
@@ -106,6 +110,11 @@ type Settings struct {
 	// CPUMode is CPUCores to show a line for each processor, or CPUTotal to
 	// show one for all of them.
 	CPUMode string `json:"cpuMode"`
+
+	// MemoryMax is the top of the memory graph, in GB or GiB as SizeUnits
+	// has it, from 1 to MaxMemoryMax, or 0 for the power of 2 the memory
+	// comes to.
+	MemoryMax int `json:"memoryMax,omitempty"`
 
 	// SizeUnits is SizeBinary or SizeDecimal, for sizes and rates, and
 	// RateUnits is RateBytes or RateBits, for network rates.
@@ -188,11 +197,11 @@ const appName = "prism"
 // fileName is the name of the settings file.
 const fileName = "settings.json"
 
-// Path returns where the settings file is kept: in a folder for the program
-// in the place the system has for the configuration of programs, which is
-// ~/.config on Linux (or $XDG_CONFIG_HOME) and ~/Library/Application Support
+// configPath returns where the settings file is kept: in a folder for the
+// program in the place the system has for the configuration of programs, which
+// is ~/.config on Linux (or $XDG_CONFIG_HOME) and ~/Library/Application Support
 // on macOS.
-func Path() (string, error) {
+func configPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -203,18 +212,18 @@ func Path() (string, error) {
 // Prepared returns where the settings file is kept, as Path does, with the
 // folder it is kept in made.
 func Prepared() (string, error) {
-	path, err := Path()
+	path, err := configPath()
 	if err != nil {
 		return "", err
 	}
-	if err := Prepare(path); err != nil {
+	if err := prepare(path); err != nil {
 		return "", err
 	}
 	return path, nil
 }
 
-// Prepare makes the folder the settings file at path is kept in.
-func Prepare(path string) error {
+// prepare makes the folder the settings file at path is kept in.
+func prepare(path string) error {
 	return os.MkdirAll(filepath.Dir(path), 0o700)
 }
 
@@ -242,6 +251,9 @@ func (s *Settings) normalise() {
 	}
 	if s.CPUMode != CPUCores && s.CPUMode != CPUTotal {
 		s.CPUMode = d.CPUMode
+	}
+	if s.MemoryMax < 0 || s.MemoryMax > MaxMemoryMax {
+		s.MemoryMax = d.MemoryMax
 	}
 	if s.SizeUnits != SizeBinary && s.SizeUnits != SizeDecimal {
 		s.SizeUnits = d.SizeUnits

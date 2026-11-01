@@ -42,7 +42,9 @@ Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
 - **CPU**: how busy each logical processor is, a line for each, or one line
   for all of them together (Settings > General > Display).
 - **Memory and Swap**: how much of each is in use, on a scale from nothing to
-  how much memory is installed, and in the legend how much that is with its
+  the power of 2 the memory comes to (32 GB for what is sold as 32 GB, in the
+  units chosen), or to the maximum chosen in Settings > General > Display, and
+  higher only if more is in use; and in the legend how much that is with its
   percentage of the whole. Memory in use is what is not available to
   programs, which leaves out caches that can be dropped.
 - **Network**: how fast each network adapter downloads (left) and uploads
@@ -86,9 +88,10 @@ only what is new of them, unless the scale, size or colours change.
   top counts it, a percentage of one processor, so more than 100% for one
   running on several, with a heading that says how many there are, as
   "CPU (8 cores)"; Cores Used, how many processors' worth of time that is,
-  2.5 for 250%; and Memory, "—" for the kernel's own threads, which have none
-  of their own to count. The PID column is as wide as the largest PID, and
-  the others share the rest of the width, the name two fifths of it.
+  2.5 for 250%; and Memory, what is resident on Linux and the footprint, as
+  Activity Monitor counts it, on macOS, "—" for the kernel's own threads,
+  which have none of their own to count. The PID column is as wide as the
+  largest PID, and the others share the rest of the width, the name two fifths of it.
 - **Sorting**: click a heading to sort by it, and again to reverse it. It
   starts with the busiest first, and keeps the order chosen for next time.
 - **Searching**: type in the box above the table to narrow it, as you type,
@@ -135,7 +138,9 @@ On macOS these are in the application's menu.
 - **General**: the update interval of each statistic and of the processes,
   in seconds to a tenth of a second, from 0.1 to 3600 (by default 1 for the
   processors and memory, and 2 for the network and processes);
-  whether the processors have a line each or one for all; and the units:
+  whether the processors have a line each or one for all; the maximum memory
+  the memory graph's scale goes to (by default the power of 2 the memory comes
+  to); and the units:
   sizes in binary (KiB, MiB) or decimal (kB, MB, the default) units, and
   network speeds in bytes (MB/s) or bits (Mb/s, the default) a second.
 - **Network**: every network adapter that has been seen, ticked if it is
@@ -325,8 +330,8 @@ It is built by a GitHub workflow (`.github/workflows/macos.yml`), which runs
 - `internal/instance` keeps to one copy running, and hands over to it.
 - `internal/desktop` writes the Linux desktop entry and its icon.
 - `internal/appicon` holds the icon, a glass prism, built into the program.
-- `internal/ui` is the window, the graphs and legends it paints, the table
-  of processes, the settings dialog and the about box.
+- `internal/ui` is the window and its tabs, the graphs and legends it paints,
+  the table of processes, the settings dialog, the about box and the themes.
 - `packaging` has the scripts and files that make the AppImage and the macOS
   app.
 - `.github/workflows` has `appimage.yml` and `macos.yml` (`v` tags, or by

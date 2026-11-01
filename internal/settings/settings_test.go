@@ -14,7 +14,7 @@ import (
 func TestPath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "/somewhere")
 	t.Setenv("HOME", "/home/someone")
-	path, err := Path()
+	path, err := configPath()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestPath(t *testing.T) {
 
 func TestPrepare(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "a", "b", "settings.json")
-	if err := Prepare(path); err != nil {
+	if err := prepare(path); err != nil {
 		t.Fatal(err)
 	}
 	info, err := os.Stat(filepath.Dir(path))
@@ -216,7 +216,7 @@ func TestValid(t *testing.T) {
 		"red":         false,
 		"#ff00000000": false,
 	} {
-		if got := Valid(colour); got != want {
+		if got := valid(colour); got != want {
 			t.Errorf("Valid(%q) = %v, want %v", colour, got, want)
 		}
 	}
@@ -252,7 +252,7 @@ func TestDefaultCore(t *testing.T) {
 		if i < len(coreColours) && colour != coreColours[i] {
 			t.Errorf("DefaultCore(%d) = %q, want %q", i, colour, coreColours[i])
 		}
-		if !Valid(colour) || seen[colour] {
+		if !valid(colour) || seen[colour] {
 			t.Errorf("DefaultCore(%d) = %q, not valid or not its own", i, colour)
 		}
 		seen[colour] = true
@@ -384,7 +384,7 @@ func TestPathFails(t *testing.T) {
 	// the settings.
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
-	if path, err := Path(); err == nil {
+	if path, err := configPath(); err == nil {
 		t.Errorf("Path = %q, want an error", path)
 	}
 }
@@ -427,7 +427,7 @@ func TestClone(t *testing.T) {
 
 func TestPrepared(t *testing.T) {
 	// The configuration of programs is kept in XDG_CONFIG_HOME on Linux, and
-	// in the home folder on macOS, as TriggerAPI's tests have it.
+	// in the home folder on macOS.
 	config := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", config)
 	t.Setenv("HOME", config)
@@ -576,5 +576,16 @@ func TestShownSorted(t *testing.T) {
 	}
 	if want := map[string]string{"lo": "Loop"}; !reflect.DeepEqual(s.AdapterAliases, want) {
 		t.Errorf("AdapterAliases = %v, want %v", s.AdapterAliases, want)
+	}
+}
+
+func TestMemoryMaxOutOfRange(t *testing.T) {
+	for value, want := range map[int]int{-1: 0, 0: 0, 16: 16, MaxMemoryMax: MaxMemoryMax, MaxMemoryMax + 1: 0} {
+		s := Defaults()
+		s.MemoryMax = value
+		s.normalise()
+		if s.MemoryMax != want {
+			t.Errorf("MemoryMax %d is normalised to %d, want %d", value, s.MemoryMax, want)
+		}
 	}
 }

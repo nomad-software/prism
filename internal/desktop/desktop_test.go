@@ -9,7 +9,7 @@ import (
 )
 
 func TestEntry(t *testing.T) {
-	entry := Entry("/home/me/bin/prism", "prism", "/home/me/.local/share/icons/hicolor/128x128/apps/prism.png")
+	entry := desktopEntry("/home/me/bin/prism", "prism", "/home/me/.local/share/icons/hicolor/128x128/apps/prism.png")
 	for _, line := range []string{
 		"[Desktop Entry]",
 		"Type=Application",
@@ -37,7 +37,7 @@ func TestExecQuoting(t *testing.T) {
 		"/tmp/100%/x":                     "/tmp/100%%/x",
 		`/tmp/back\slash`:                 `"/tmp/back\\\\slash"`,
 	} {
-		entry := Entry(path, "x", "/x.png")
+		entry := desktopEntry(path, "x", "/x.png")
 		if !strings.Contains(entry, "\nExec="+want+"\n") {
 			t.Errorf("Exec for %q: want %q in\n%s", path, want, entry)
 		}
@@ -47,13 +47,13 @@ func TestExecQuoting(t *testing.T) {
 func TestExecutable(t *testing.T) {
 	// An AppImage is started again through the AppImage itself.
 	t.Setenv("APPIMAGE", "/home/me/Apps/Prism-x86_64.AppImage")
-	if got, err := Executable(); err != nil || got != "/home/me/Apps/Prism-x86_64.AppImage" {
+	if got, err := executable(); err != nil || got != "/home/me/Apps/Prism-x86_64.AppImage" {
 		t.Errorf("in an AppImage: %q, %v", got, err)
 	}
 
 	// Otherwise it is the program itself, with any links followed.
 	t.Setenv("APPIMAGE", "")
-	got, err := Executable()
+	got, err := executable()
 	if err != nil || !filepath.IsAbs(got) {
 		t.Fatalf("Executable() = %q, %v", got, err)
 	}
@@ -64,13 +64,13 @@ func TestExecutable(t *testing.T) {
 
 func TestDir(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", "/data/home")
-	if got, err := Dir(); err != nil || got != "/data/home" {
+	if got, err := dataDir(); err != nil || got != "/data/home" {
 		t.Errorf("with XDG_DATA_HOME: %q, %v", got, err)
 	}
 	// A relative one is ignored, as the specification says.
 	t.Setenv("XDG_DATA_HOME", "relative")
 	t.Setenv("HOME", "/home/me")
-	if got, err := Dir(); err != nil || got != "/home/me/.local/share" {
+	if got, err := dataDir(); err != nil || got != "/home/me/.local/share" {
 		t.Errorf("without XDG_DATA_HOME: %q, %v", got, err)
 	}
 }
@@ -80,7 +80,7 @@ func TestWrite(t *testing.T) {
 	entryPath := filepath.Join(data, "applications", "prism.desktop")
 	iconPath := filepath.Join(data, "icons", "hicolor", "128x128", "apps", "prism.png")
 
-	if err := Write(data, "/opt/one/prism", "prism", []byte("png")); err != nil {
+	if err := write(data, "/opt/one/prism", "prism", []byte("png")); err != nil {
 		t.Fatal(err)
 	}
 	entry, err := os.ReadFile(entryPath)
@@ -97,7 +97,7 @@ func TestWrite(t *testing.T) {
 	// The same again leaves the files alone.
 	old := time.Now().Add(-time.Hour)
 	os.Chtimes(entryPath, old, old)
-	if err := Write(data, "/opt/one/prism", "prism", []byte("png")); err != nil {
+	if err := write(data, "/opt/one/prism", "prism", []byte("png")); err != nil {
 		t.Fatal(err)
 	}
 	if info, _ := os.Stat(entryPath); !info.ModTime().Equal(old) {
@@ -105,7 +105,7 @@ func TestWrite(t *testing.T) {
 	}
 
 	// Run from elsewhere, or under another name, it is rewritten.
-	if err := Write(data, "/home/me/Apps/Prism.AppImage", "prism", []byte("png")); err != nil {
+	if err := write(data, "/home/me/Apps/Prism.AppImage", "prism", []byte("png")); err != nil {
 		t.Fatal(err)
 	}
 	entry, _ = os.ReadFile(entryPath)
@@ -203,7 +203,7 @@ func TestWriteErrors(t *testing.T) {
 	if err := os.WriteFile(file, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err := Write(file, "/opt/prism", "prism", []byte("png"))
+	err := write(file, "/opt/prism", "prism", []byte("png"))
 	if err == nil {
 		t.Fatal("Write under a file succeeded")
 	}
@@ -237,7 +237,7 @@ func TestPackagedEntry(t *testing.T) {
 		}
 		return m
 	}
-	got, want := keys(string(packaged)), keys(Entry(Name, Name, Name))
+	got, want := keys(string(packaged)), keys(desktopEntry(Name, Name, Name))
 	delete(want, "TryExec")
 	for k, v := range want {
 		if got[k] != v {

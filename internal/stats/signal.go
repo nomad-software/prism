@@ -27,7 +27,7 @@ func signal(p Process, started func(pid int) (uint64, bool), number int) error {
 	if start, ok := started(p.PID); !ok || start != p.Start {
 		return ErrEnded
 	}
-	return kill(p.PID, number)
+	return syscall.Kill(p.PID, syscall.Signal(number))
 }
 
 // Signals returns the signals a process can be sent, the first of them,
@@ -44,9 +44,4 @@ func Signals() []Signal {
 		{"SIGUSR1", int(syscall.SIGUSR1)},
 		{"SIGUSR2", int(syscall.SIGUSR2)},
 	}
-}
-
-// kill sends the signal of the number to the process with the PID.
-func kill(pid, number int) error {
-	return syscall.Kill(pid, syscall.Signal(number))
 }

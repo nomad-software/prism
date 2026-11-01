@@ -13,13 +13,17 @@ import (
 )
 
 // settingsDialog shows the settings: how often each statistic and the
-// processes are read, how the processors are shown, the units sizes and
-// rates are written in, which network adapters are shown and by what names,
-// the theme, and the colours graphs are drawn in.
+// processes are read, how the processors are shown, the top of the memory
+// graph, the units sizes and rates are written in, which network adapters are
+// shown and by what names, the theme, and the colours graphs are drawn in.
 type settingsDialog struct {
 	*qt.QDialog
 	cpuInterval, memoryInterval, networkInterval, processesInterval *qt.QDoubleSpinBox
 	cpuMode, theme, sizeUnits, rateUnits                            *qt.QComboBox
+	// memoryMax is the top of the memory graph, in GB or GiB, and
+	// defaultMemoryMax what it is unless another is chosen.
+	memoryMax        *qt.QSpinBox
+	defaultMemoryMax int
 	// shown lists the network adapters, in the order of names, each ticked
 	// if it is shown, with its alias beside it.
 	shown *qt.QTableWidget
@@ -37,7 +41,7 @@ type settingsDialog struct {
 }
 
 // tabMargin is the space between the edge of a tab of the settings dialog
-// and what is on it, as TriggerAPI has it.
+// and what is on it.
 const tabMargin = 20
 
 // settingsWidth is the narrowest the settings dialog opens, and
@@ -52,10 +56,11 @@ const (
 const colourTableHeight = 300
 
 // newSettingsDialog shows the settings, with a colour for each of the
-// processors there are and of the network adapters named, and calls accepted
-// with them if they are.
-func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int, adapters []string, accepted func(settings.Settings)) *settingsDialog {
-	d := &settingsDialog{QDialog: qt.NewQDialog(parent), names: adapters}
+// processors there are and of the network adapters named, and the top of the
+// memory graph unless another is chosen, and calls accepted with them if they
+// are.
+func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int, adapters []string, defaultMemoryMax int, accepted func(settings.Settings)) *settingsDialog {
+	d := &settingsDialog{QDialog: qt.NewQDialog(parent), names: adapters, defaultMemoryMax: defaultMemoryMax}
 	d.SetWindowTitle("Settings")
 	d.SetMinimumWidth(settingsLeastWidth)
 	tabs := qt.NewQTabWidget2()
@@ -88,7 +93,7 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 }
 
 // generalTab makes the tab of how often each statistic is read, how the
-// processors are shown, and the units.
+// processors are shown, the top of the memory graph, and the units.
 func (d *settingsDialog) generalTab() *qt.QWidget {
 	general := qt.NewQWidget2()
 	generalForm := qt.NewQFormLayout(general)
@@ -109,11 +114,15 @@ func (d *settingsDialog) generalTab() *qt.QWidget {
 	addItem(d.cpuMode, "A line for each core", settings.CPUCores)
 	addItem(d.cpuMode, "One line for all cores", settings.CPUTotal)
 	generalForm.AddRow3("CPU", d.cpuMode.QWidget)
+	d.memoryMax = qt.NewQSpinBox2()
+	d.memoryMax.SetRange(1, settings.MaxMemoryMax)
+	generalForm.AddRow3("Maximum memory", d.memoryMax.QWidget)
 	generalForm.AddRowWithWidget(laterHeading("Units").QWidget)
 	d.sizeUnits = qt.NewQComboBox2()
 	addItem(d.sizeUnits, "Binary (KiB, MiB, GiB)", settings.SizeBinary)
 	addItem(d.sizeUnits, "Decimal (kB, MB, GB)", settings.SizeDecimal)
 	generalForm.AddRow3("Sizes", d.sizeUnits.QWidget)
+	d.sizeUnits.OnCurrentIndexChanged(func(int) { d.showMemoryUnit() })
 	d.rateUnits = qt.NewQComboBox2()
 	addItem(d.rateUnits, "Bytes per second (MiB/s, MB/s)", settings.RateBytes)
 	addItem(d.rateUnits, "Bits per second (Mib/s, Mb/s)", settings.RateBits)
@@ -198,8 +207,7 @@ const (
 )
 
 // colourTable lists every colour in a table, which scrolls: a row for each,
-// with its name and its swatch, under a heading row for each section, as
-// TriggerAPI lists its colours.
+// with its name and its swatch, under a heading row for each section.
 func (d *settingsDialog) colourTable(cores int) *qt.QTableWidget {
 	table := qt.NewQTableWidget3(0, 2)
 	table.SetHorizontalHeaderLabels([]string{"Name", "Colour"})
@@ -281,6 +289,11 @@ func (d *settingsDialog) show(s settings.Settings) {
 	selectData(d.cpuMode, s.CPUMode)
 	selectData(d.theme, s.Theme)
 	selectData(d.sizeUnits, s.SizeUnits)
+	d.showMemoryUnit()
+	d.memoryMax.SetValue(d.defaultMemoryMax)
+	if s.MemoryMax != 0 {
+		d.memoryMax.SetValue(s.MemoryMax)
+	}
 	selectData(d.rateUnits, s.RateUnits)
 	for i, name := range d.names {
 		state := qt.Checked
@@ -291,6 +304,16 @@ func (d *settingsDialog) show(s settings.Settings) {
 		d.shown.Item(i, colAdapterAlias).SetText(s.AdapterAliases[name])
 	}
 	d.showColours(s.Colours)
+}
+
+// showMemoryUnit names the unit of the top of the memory graph, in the units
+// of sizes chosen.
+func (d *settingsDialog) showMemoryUnit() {
+	if currentData(d.sizeUnits) == settings.SizeDecimal {
+		d.memoryMax.SetSuffix(" GB")
+	} else {
+		d.memoryMax.SetSuffix(" GiB")
+	}
 }
 
 // showColours puts the colours in the dialog.
@@ -319,6 +342,11 @@ func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 	}
 	s.CPUMode = currentData(d.cpuMode)
 	s.Theme = currentData(d.theme)
+	// The default is not kept as a choice, so that it follows the memory.
+	s.MemoryMax = d.memoryMax.Value()
+	if s.MemoryMax == d.defaultMemoryMax {
+		s.MemoryMax = 0
+	}
 	s.SizeUnits = currentData(d.sizeUnits)
 	s.RateUnits = currentData(d.rateUnits)
 
@@ -407,8 +435,8 @@ func note(text string) *qt.QLabel {
 	return label
 }
 
-// plainPage gives the page of a tab widget the background of the window, as
-// TriggerAPI does: some styles draw the pages of a tab widget lighter than
+// plainPage gives the page of a tab widget the background of the window:
+// some styles draw the pages of a tab widget lighter than
 // the window, which in a dark theme is a slab of grey. The page is returned.
 func plainPage(page *qt.QWidget) *qt.QWidget {
 	page.SetBackgroundRole(qt.QPalette__Window)
@@ -457,7 +485,7 @@ func currentData(box *qt.QComboBox) string {
 const swatchButtonWidth = 140
 
 // swatch is a button filled with a colour, and named with it, which chooses
-// another when it is clicked, as TriggerAPI's are.
+// another when it is clicked.
 type swatch struct {
 	*qt.QPushButton
 	// colour is the colour, as the settings write it.

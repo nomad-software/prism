@@ -19,21 +19,16 @@ var themes = []struct{ name, label string }{
 // following the system goes back to.
 var systemStyle string
 
-// rememberSystemStyle keeps the name of the style the program started with,
-// before a theme of its own replaces it.
-func rememberSystemStyle() {
-	if systemStyle == "" {
-		systemStyle = qt.QApplication_Style().Name()
-	}
-}
-
 // applyTheme puts the theme with the name into effect. The light and dark
 // themes are the Fusion style, which draws in whatever palette it is given
 // on every desktop, with a palette of their own; the system's is the style
 // and the palette the desktop gives, which Qt keeps up to date as the
 // desktop's theme changes.
 func applyTheme(name string) {
-	rememberSystemStyle()
+	// The first theme applied replaces the style the program started with.
+	if systemStyle == "" {
+		systemStyle = qt.QApplication_Style().Name()
+	}
 	var p *qt.QPalette
 	switch name {
 	case settings.ThemeLight:
@@ -58,7 +53,7 @@ type colours struct {
 }
 
 // lightColours and darkColours are the palettes of the light and dark
-// themes, as ApeMail has them. Each sets every colour Fusion draws with, as
+// themes. Each sets every colour Fusion draws with, as
 // what is left out would be the desktop's.
 var (
 	lightColours = colours{

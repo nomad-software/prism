@@ -9,8 +9,8 @@ import (
 )
 
 // entry is an entry of a legend: the colour of its line, its name, and what
-// it says of it. setColour, where it is set, changes the colour in the
-// settings, which clicking the swatch does.
+// it says of it. setColour changes the colour in the settings, which clicking
+// the swatch does.
 type entry struct {
 	colour, label, value string
 	setColour            func(colour string)
@@ -63,7 +63,7 @@ func newLegend(faint bool) *legend {
 		// The position is a copy the garbage collector frees, as is any
 		// value miqt returns by value: deleting it as well frees it twice.
 		pos := e.Position()
-		l.hover(l.settableAt(pos.X(), pos.Y()))
+		l.hover(l.swatchAt(pos.X(), pos.Y()))
 	})
 	l.OnLeaveEvent(func(super func(*qt.QEvent), e *qt.QEvent) {
 		super(e)
@@ -156,19 +156,10 @@ func (l *legend) swatchAt(x, y float64) int {
 	return -1
 }
 
-// settableAt returns the index of the entry whose swatch is at the place,
-// and whose colour can be set, or -1 if there is none.
-func (l *legend) settableAt(x, y float64) int {
-	if i := l.swatchAt(x, y); i >= 0 && l.entries[i].setColour != nil {
-		return i
-	}
-	return -1
-}
-
 // click chooses the colour of the entry whose swatch is at the place, and
 // says whether there was one.
 func (l *legend) click(x, y float64) bool {
-	i := l.settableAt(x, y)
+	i := l.swatchAt(x, y)
 	if i < 0 {
 		return false
 	}

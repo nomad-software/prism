@@ -7,6 +7,7 @@ package chart
 import (
 	"fmt"
 	"math"
+	"math/bits"
 	"time"
 
 	"github.com/nomad-software/prism/internal/history"
@@ -97,9 +98,9 @@ func scaled(n, base float64, names []string) string {
 	return fmt.Sprintf("%.1f %s", n, names[i])
 }
 
-// FormatAgo writes how long before now a line of the grid is, as the labels
+// formatAgo writes how long before now a line of the grid is, as the labels
 // under a graph do: "1 min", "50 secs", "2 hours".
-func FormatAgo(d time.Duration) string {
+func formatAgo(d time.Duration) string {
 	plural := func(n int64, unit string) string {
 		if n == 1 {
 			return fmt.Sprintf("%d %s", n, unit)
@@ -122,7 +123,7 @@ func FormatAgo(d time.Duration) string {
 func TimeLabels(span time.Duration) []string {
 	labels := make([]string, Columns)
 	for i := range Columns {
-		labels[i] = FormatAgo(span * time.Duration(Columns-i) / Columns)
+		labels[i] = formatAgo(span * time.Duration(Columns-i) / Columns)
 	}
 	return labels
 }
@@ -165,21 +166,42 @@ func (u Units) RateTop(largest float64) float64 {
 // RateLabels returns the labels of the lines of the grid across a graph of
 // rates whose top is the value, from the bottom to the top.
 func (u Units) RateLabels(top float64) []string {
+	return rowLabels(top, u.Rate)
+}
+
+// rowLabels returns the labels of the lines of the grid across a graph whose
+// top is the value, from the bottom to the top, each value written by write.
+func rowLabels(top float64, write func(float64) string) []string {
 	labels := make([]string, Rows+1)
 	for i := range labels {
-		labels[i] = u.Rate(top * float64(i) / Rows)
+		labels[i] = write(top * float64(i) / Rows)
 	}
 	return labels
+}
+
+// DefaultMemoryMax returns the top of the memory graph unless one is chosen,
+// as a number of gigabytes: the power of 2 at or above the bytes of memory the
+// system says it has, counted in units of 1024 as memory is sold, which is
+// less than is installed, as the system keeps some for itself. It is at least
+// 1.
+func DefaultMemoryMax(total uint64) int {
+	const gib = 1 << 30
+	whole := (total + gib - 1) / gib
+	if whole <= 1 {
+		return 1
+	}
+	return 1 << bits.Len64(whole-1)
+}
+
+// Gigabyte returns how many bytes the units say a gigabyte is: GB or GiB.
+func (u Units) Gigabyte() float64 {
+	return u.base() * u.base() * u.base()
 }
 
 // SizeLabels returns the labels of the lines of the grid across a graph of
 // sizes whose top is the value, from the bottom to the top.
 func (u Units) SizeLabels(top float64) []string {
-	labels := make([]string, Rows+1)
-	for i := range labels {
-		labels[i] = u.Size(top * float64(i) / Rows)
-	}
-	return labels
+	return rowLabels(top, u.Size)
 }
 
 // Rect is a rectangle, where a graph is drawn.

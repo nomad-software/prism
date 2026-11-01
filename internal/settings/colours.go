@@ -99,7 +99,7 @@ func DefaultCore(i int) string {
 
 // Core returns the colour of the processor at the index.
 func (c Colours) Core(i int) string {
-	if i < len(c.Cores) && Valid(c.Cores[i]) {
+	if i < len(c.Cores) && valid(c.Cores[i]) {
 		return c.Cores[i]
 	}
 	return DefaultCore(i)
@@ -149,12 +149,12 @@ func (c *Colours) normalise() {
 		{&c.Memory, d.Memory},
 		{&c.Swap, d.Swap},
 	} {
-		if !Valid(*field.value) {
+		if !valid(*field.value) {
 			*field.value = field.fallback
 		}
 	}
 	for i, colour := range c.Cores {
-		if !Valid(colour) {
+		if !valid(colour) {
 			c.Cores[i] = ""
 		}
 	}
@@ -162,14 +162,14 @@ func (c *Colours) normalise() {
 		c.Network = map[string]string{}
 	}
 	for name, colour := range c.Network {
-		if !Valid(colour) {
+		if !valid(colour) {
 			delete(c.Network, name)
 		}
 	}
 }
 
-// Valid says whether a colour is written #rrggbb or #aarrggbb.
-func Valid(colour string) bool {
+// valid says whether a colour is written #rrggbb or #aarrggbb.
+func valid(colour string) bool {
 	if len(colour) != 7 && len(colour) != 9 || colour[0] != '#' {
 		return false
 	}

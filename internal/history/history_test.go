@@ -25,6 +25,27 @@ func at(seconds int) time.Time {
 	return time.Unix(1_700_000_000+int64(seconds), 0)
 }
 
+func TestSeriesRecord(t *testing.T) {
+	var s Series
+	span := 10 * time.Second
+	s.Record(at(0), span, 1, 2)
+	want := []Point{{at(-10), 1}, {at(0), 2}}
+	if !reflect.DeepEqual(s.Points(), want) {
+		t.Errorf("the first reading gave %v, want %v", s.Points(), want)
+	}
+	// The newest point off the left is kept, to reach the edge from.
+	s.Record(at(5), span, 1, 3)
+	want = []Point{{at(-10), 1}, {at(0), 2}, {at(5), 3}}
+	if !reflect.DeepEqual(s.Points(), want) {
+		t.Errorf("the second reading gave %v, want %v", s.Points(), want)
+	}
+	s.Record(at(12), span, 1, 4)
+	want = []Point{{at(0), 2}, {at(5), 3}, {at(12), 4}}
+	if !reflect.DeepEqual(s.Points(), want) {
+		t.Errorf("the third reading gave %v, want %v", s.Points(), want)
+	}
+}
+
 func TestSeriesEmpty(t *testing.T) {
 	var s Series
 	if len(s.Points()) != 0 {

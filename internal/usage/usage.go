@@ -9,10 +9,10 @@ import (
 	"github.com/nomad-software/prism/internal/stats"
 )
 
-// Busy returns the percentage of the time between two readings of a
+// busy returns the percentage of the time between two readings of a
 // processor's times that it was busy. It is 0 where no time passed, or where
 // the counters went back, as they do when a processor is brought online.
-func Busy(before, after stats.CPUTimes) float64 {
+func busy(before, after stats.CPUTimes) float64 {
 	if after.Busy < before.Busy || after.Idle < before.Idle {
 		return 0
 	}
@@ -41,10 +41,10 @@ func (c *CPU) Update(now stats.CPU) (all float64, cores []float64, ok bool) {
 	cores = make([]float64, len(now.Cores))
 	for i, t := range now.Cores {
 		if i < len(last.Cores) {
-			cores[i] = Busy(last.Cores[i], t)
+			cores[i] = busy(last.Cores[i], t)
 		}
 	}
-	return Busy(last.All, now.All), cores, true
+	return busy(last.All, now.All), cores, true
 }
 
 // Rate is how fast an adapter received and sent, in bytes a second, and how

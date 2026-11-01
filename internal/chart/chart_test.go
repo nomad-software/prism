@@ -74,7 +74,7 @@ func TestFormatAgo(t *testing.T) {
 		{2 * time.Hour, "2 hours"},
 		{1500 * time.Millisecond, "2 secs"},
 	} {
-		if got := FormatAgo(c.d); got != c.want {
+		if got := formatAgo(c.d); got != c.want {
 			t.Errorf("FormatAgo(%v) = %q, want %q", c.d, got, c.want)
 		}
 	}
@@ -140,6 +140,40 @@ func TestSizeLabels(t *testing.T) {
 	want = []string{"0 B", "3.2 GB", "6.4 GB", "9.6 GB", "12.8 GB", "16.0 GB"}
 	if got := (Units{Decimal: true}).SizeLabels(16e9); !reflect.DeepEqual(got, want) {
 		t.Errorf("decimal SizeLabels = %v, want %v", got, want)
+	}
+}
+
+func TestGigabyte(t *testing.T) {
+	if got := (Units{}).Gigabyte(); got != 1<<30 {
+		t.Errorf("binary Gigabyte = %v", got)
+	}
+	if got := (Units{Decimal: true}).Gigabyte(); got != 1e9 {
+		t.Errorf("decimal Gigabyte = %v", got)
+	}
+}
+
+func TestDefaultMemoryMax(t *testing.T) {
+	const GB = 1 << 30
+	for _, c := range []struct {
+		total uint64
+		want  int
+	}{
+		{0, 1},
+		{512 << 20, 1},
+		{GB, 1},
+		{GB + 1, 2},
+		{2 * GB, 2},
+		{7 * GB, 8},
+		// What this was found on: 32 GiB installed, of which the system has
+		// the rest.
+		{33583353856, 32},
+		{32 * GB, 32},
+		{32*GB + 1, 64},
+		{48 * GB, 64},
+	} {
+		if got := DefaultMemoryMax(c.total); got != c.want {
+			t.Errorf("DefaultMemoryMax(%d) = %d, want %d", c.total, got, c.want)
+		}
 	}
 }
 

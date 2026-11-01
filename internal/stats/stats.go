@@ -94,6 +94,12 @@ func (p Process) Key() ProcessKey {
 	return ProcessKey{p.PID, p.Start}
 }
 
+// MemoryKnown says whether Memory says how much memory the process has: it does
+// not where it could not be read, or of a thread of the kernel.
+func (p Process) MemoryKnown() bool {
+	return !p.Restricted && !p.Kernel
+}
+
 // nobodyUIDs are the user IDs of nobody: 65534 on Linux, and -2 on macOS,
 // which is unsigned there.
 var nobodyUIDs = []int{65534, 1<<32 - 2}

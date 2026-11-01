@@ -101,7 +101,6 @@ func NewWindow(path string, source stats.Source) *Window {
 		source:      source,
 		now:         time.Now,
 	}
-	rememberSystemStyle()
 	if w.config.Theme != "" {
 		applyTheme(w.config.Theme)
 	}
@@ -373,12 +372,7 @@ func (w *Window) sampleCPU() {
 	}
 	now := w.now()
 	s := span(w.config.Intervals.CPU)
-	add := func(series *history.Series, v float64) {
-		series.Fill(now, s, 0)
-		series.Add(now, v)
-		series.Trim(now.Add(-s))
-	}
-	add(&w.cpu.all, all)
+	w.cpu.all.Record(now, s, 0, all)
 	for i := range w.cpu.cores {
 		// A processor that is no longer read, as one taken offline, is
 		// idle.
@@ -386,7 +380,7 @@ func (w *Window) sampleCPU() {
 		if i < len(cores) {
 			busy = cores[i]
 		}
-		add(&w.cpu.cores[i], busy)
+		w.cpu.cores[i].Record(now, s, 0, busy)
 	}
 	w.showCPU()
 }
@@ -447,16 +441,8 @@ func (w *Window) sampleMemory() {
 	now := w.now()
 	w.memory.last = m
 	s := span(w.config.Intervals.Memory)
-	for _, l := range []struct {
-		series *history.Series
-		v      float64
-	}{{&w.memory.memory, float64(m.Used)}, {&w.memory.swap, float64(m.SwapUsed)}} {
-		l.series.Fill(now, s, l.v)
-		l.series.Add(now, l.v)
-	}
-	before := now.Add(-s)
-	w.memory.memory.Trim(before)
-	w.memory.swap.Trim(before)
+	w.memory.memory.Record(now, s, float64(m.Used), float64(m.Used))
+	w.memory.swap.Record(now, s, float64(m.SwapUsed), float64(m.SwapUsed))
 	w.showMemory()
 }
 
@@ -477,12 +463,17 @@ func (w *Window) showMemory() {
 		{colours.Memory, w.memory.memory.Points(), true},
 		{colours.Swap, w.memory.swap.Points(), true},
 	}
-	// The graph is of how much is in use, up to how much memory there is,
-	// or to more swap than that if it is in use.
+	// The graph is of how much is in use, up to the maximum chosen or else
+	// the power of 2 the memory comes to, in the units of sizes, or to more
+	// than that if it is in use.
 	s := span(w.config.Intervals.Memory)
 	since := w.now().Add(-s)
-	top := max(float64(m.Total), w.memory.memory.Max(since), w.memory.swap.Max(since), 1)
+	most := w.config.MemoryMax
+	if most == 0 {
+		most = chart.DefaultMemoryMax(m.Total)
+	}
 	u := w.units()
+	top := max(float64(most)*u.Gigabyte(), w.memory.memory.Max(since), w.memory.swap.Max(since))
 	w.memory.graph.show(w.now(), s, top, u.SizeLabels(top), lines, colours.Grid)
 	w.memory.legend.show([]entry{
 		{colours.Memory, "Memory", usedOf(u, m.Used, m.Total), w.colourSetter(func(c *settings.Colours, colour string) {
@@ -546,21 +537,22 @@ func (w *Window) sampleNetwork() {
 		a.present, a.rate = true, rate
 		// Until an adapter's second reading its lines are 0 across the
 		// graphs.
-		a.received.Fill(now, s, 0)
-		a.sent.Fill(now, s, 0)
-		a.received.Add(now, rate.Received)
-		a.sent.Add(now, rate.Sent)
+		a.received.Record(now, s, 0, rate.Received)
+		a.sent.Record(now, s, 0, rate.Sent)
 		if _, given := w.config.Colours.Adapter(name); given {
 			added = true
 		}
 	}
 	before := now.Add(-s)
 	for name, a := range w.network.adapters {
+		if a.present {
+			continue
+		}
 		a.received.Trim(before)
 		a.sent.Trim(before)
 		// An adapter that has gone is forgotten once its lines have gone
 		// off the left of the graphs, which a line of one point has.
-		if last, ok := a.received.Last(); !a.present && (!ok || last.T.Before(before)) {
+		if last, ok := a.received.Last(); !ok || last.T.Before(before) {
 			delete(w.network.adapters, name)
 		}
 	}
@@ -618,7 +610,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // editSettings shows the settings, and puts them into effect if they are
 // changed.
 func (w *Window) editSettings() *settingsDialog {
-	return newSettingsDialog(w.QWidget, w.config, len(w.cpu.cores), sortedKeys(w.config.Colours.Network), w.applySettings)
+	return newSettingsDialog(w.QWidget, w.config, len(w.cpu.cores), sortedKeys(w.config.Colours.Network), chart.DefaultMemoryMax(w.memory.last.Total), w.applySettings)
 }
 
 // applySettings puts the settings into effect, and saves them.

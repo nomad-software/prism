@@ -473,10 +473,10 @@ func TestTabShortcuts(t *testing.T) {
 	})
 }
 
-// iconLightness returns the lightness of the most opaque pixel of the icon of
-// the tab, from 0 to 255, or -1 if it has none.
-func iconLightness(tw *testWindow, tab int) int {
-	pixmap := tw.tabs.TabIcon(tab).Pixmap2(tabIconSize, tabIconSize)
+// iconLightness returns the lightness of the most opaque pixel of the icon,
+// from 0 to 255, or -1 if it has none.
+func iconLightness(icon *qt.QIcon) int {
+	pixmap := icon.Pixmap2(iconSize, iconSize)
 	img := pixmap.ToImage()
 	best, lightness := 0, -1
 	for y := range img.Height() {
@@ -490,7 +490,9 @@ func iconLightness(tw *testWindow, tab int) int {
 	return lightness
 }
 
-func TestTabIcons(t *testing.T) {
+// TestIconsFollowTheme checks that the icons of the tabs and of the buttons
+// that show the processes as a list or a tree are in the colour of text.
+func TestIconsFollowTheme(t *testing.T) {
 	tw := newTestWindow(t, func(s *settings.Settings) { s.Theme = settings.ThemeDark })
 	mainthread.Wait(func() {
 		for tab := range tabCount {
@@ -498,8 +500,13 @@ func TestTabIcons(t *testing.T) {
 				t.Fatalf("tab %d has no icon", tab)
 			}
 			// The icons are in the colour of text: light on dark.
-			if l := iconLightness(tw, tab); l < 160 {
+			if l := iconLightness(tw.tabs.TabIcon(tab)); l < 160 {
 				t.Errorf("dark theme: tab %d icon lightness %d, want light", tab, l)
+			}
+		}
+		for _, b := range tw.processes.view.buttons {
+			if l := iconLightness(b.Icon()); l < 160 {
+				t.Errorf("dark theme: %s button icon lightness %d, want light", b.ToolTip(), l)
 			}
 		}
 		s := tw.config
@@ -507,8 +514,13 @@ func TestTabIcons(t *testing.T) {
 		tw.applySettings(s)
 		qt.QCoreApplication_ProcessEvents()
 		for tab := range tabCount {
-			if l := iconLightness(tw, tab); l < 0 || l > 100 {
+			if l := iconLightness(tw.tabs.TabIcon(tab)); l < 0 || l > 100 {
 				t.Errorf("light theme: tab %d icon lightness %d, want dark", tab, l)
+			}
+		}
+		for _, b := range tw.processes.view.buttons {
+			if l := iconLightness(b.Icon()); l < 0 || l > 100 {
+				t.Errorf("light theme: %s button icon lightness %d, want dark", b.ToolTip(), l)
 			}
 		}
 	})
@@ -533,7 +545,7 @@ func TestProcessFilterAndView(t *testing.T) {
 		p := &tw.processes
 		tw.sampleProcesses()
 		// Those of people are shown as a list at first.
-		if currentData(p.filter) != settings.ProcessesUser || currentData(p.view) != settings.ViewList {
+		if currentData(p.filter) != settings.ProcessesUser || p.view.current() != settings.ViewList {
 			t.Error("the processes of people are not shown as a list at first")
 		}
 		if got := column(tw, colProcessName); !slices.Equal(got, []string{"login", "bash", "vim"}) {
@@ -552,7 +564,7 @@ func TestProcessFilterAndView(t *testing.T) {
 		// A tree has each process under the one that started it, and those
 		// of the same parent in the order chosen.
 		selectData(p.filter, settings.ProcessesAll)
-		selectData(p.view, settings.ViewTree)
+		p.view.choose(settings.ViewTree)
 		tw.processes.tree.Header().SetSortIndicator(colProcessMemory, qt.DescendingOrder)
 		want := []string{"init", "sshd", "login", "bash", "vim", "kthreadd"}
 		if got := column(tw, colProcessName); !slices.Equal(got, want) {
@@ -582,7 +594,7 @@ func TestProcessFilterAndView(t *testing.T) {
 	// They are as they were saved when the window is made again.
 	again := newTestWindow(t, func(s *settings.Settings) { *s = settings.Load(tw.path) })
 	mainthread.Wait(func() {
-		if currentData(again.processes.filter) != settings.ProcessesUser || currentData(again.processes.view) != settings.ViewTree {
+		if currentData(again.processes.filter) != settings.ProcessesUser || again.processes.view.current() != settings.ViewTree {
 			t.Error("the choices are not as they were saved")
 		}
 	})
@@ -596,7 +608,7 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 		tw.tabs.SetCurrentIndex(tabProcesses)
 		qt.QCoreApplication_ProcessEvents()
 		p := &tw.processes
-		filter, view := p.filter.Geometry(), p.view.Geometry()
+		filter, view := p.filter.Geometry(), p.view.buttons[0].Geometry()
 		table := p.tree.Geometry()
 		var items []string
 		for i := range p.filter.Count() {
@@ -608,8 +620,8 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 		// Each is labelled, the label just before it.
 		for _, c := range []struct {
 			text string
-			box  *qt.QComboBox
-		}{{"Processes", p.filter}, {"Show as", p.view}} {
+			box  *qt.QWidget
+		}{{"Processes", p.filter.QWidget}, {"Show as", p.view.buttons[0].QWidget}} {
 			found := false
 			for _, label := range labels(p.QObject) {
 				if label.Text() == c.text {
@@ -618,13 +630,34 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 				}
 			}
 			if !found {
-				t.Errorf("there is no label %q just before its dropdown", c.text)
+				t.Errorf("there is no label %q just before its choices", c.text)
 			}
 		}
 		if filter.Top() <= table.Bottom() || view.Top() <= table.Bottom() {
 			t.Error("the choices are not below the table")
 		}
-		if filter.Left() > table.Left()+table.Width()/4 || view.Left() <= filter.Right() || view.Right() >= p.signals.Geometry().Left() {
+		// The view is chosen by a button for each, side by side, each with
+		// an icon and named in its tool tip.
+		var names []string
+		for _, b := range p.view.buttons {
+			icon := b.Icon()
+			if icon.IsNull() || !b.IsCheckable() {
+				t.Errorf("the button %q has no icon or cannot be checked", b.ToolTip())
+			}
+			names = append(names, b.ToolTip())
+		}
+		if !slices.Equal(names, []string{"List", "Tree"}) {
+			t.Errorf("view buttons = %q", names)
+		}
+		if tree := p.view.buttons[1].Geometry(); tree.Left() <= view.Right() || tree.Top() != view.Top() {
+			t.Error("the view buttons are not side by side")
+		}
+		// Only one is checked at a time.
+		p.view.buttons[1].Click()
+		if p.view.buttons[0].IsChecked() || p.view.current() != settings.ViewTree {
+			t.Error("checking Tree does not uncheck List")
+		}
+		if filter.Left() > table.Left()+table.Width()/4 || view.Left() <= filter.Right() || p.view.buttons[1].Geometry().Right() >= p.signals.Geometry().Left() {
 			t.Errorf("the choices are not at the left: filter %d-%d, view %d-%d, table from %d",
 				filter.Left(), filter.Right(), view.Left(), view.Right(), table.Left())
 		}
@@ -664,7 +697,7 @@ func TestProcessSearch(t *testing.T) {
 			}
 		}
 		// In a tree, one whose parent is not found is at the top.
-		selectData(p.view, settings.ViewTree)
+		p.view.choose(settings.ViewTree)
 		p.search.SetText("o")
 		if got := column(tw, colProcessName); !slices.Equal(got, []string{"login"}) {
 			t.Errorf("tree search = %q", got)
@@ -776,7 +809,7 @@ func TestProcessFolding(t *testing.T) {
 			t.Errorf("folded = %v after login ended", p.folded)
 		}
 
-		selectData(p.view, settings.ViewList)
+		p.view.choose(settings.ViewList)
 		if p.tree.RootIsDecorated() || !slices.Equal(depths(tw), make([]int, len(depths(tw)))) {
 			t.Error("the list has branches")
 		}

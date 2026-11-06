@@ -76,7 +76,8 @@ type processes struct {
 	search *qt.QLineEdit
 	// filter chooses which processes are shown, and view whether as a list
 	// or a tree.
-	filter, view *qt.QComboBox
+	filter *qt.QComboBox
+	view   iconChoice
 	// signals lists stats.Signals, by their names, and send sends the one
 	// chosen to the process chosen.
 	signals *qt.QComboBox
@@ -101,12 +102,13 @@ func (w *Window) makeProcesses() {
 	addItem(p.filter, "User", settings.ProcessesUser)
 	addItem(p.filter, "System", settings.ProcessesSystem)
 	selectData(p.filter, w.config.ProcessFilter)
-	p.view = qt.NewQComboBox2()
-	addItem(p.view, "List", settings.ViewList)
-	addItem(p.view, "Tree", settings.ViewTree)
-	selectData(p.view, w.config.ProcessView)
+	p.view = newIconChoice(p.QObject, []iconOption{
+		{"List", settings.ViewList, drawProcessesIcon},
+		{"Tree", settings.ViewTree, drawTreeIcon},
+	})
+	p.view.choose(w.config.ProcessView)
 	p.filter.OnCurrentIndexChanged(func(int) { w.processViewChanged() })
-	p.view.OnCurrentIndexChanged(func(int) { w.processViewChanged() })
+	p.view.onChanged(w.processViewChanged)
 
 	// What is searched for is written above the tree, and narrows it as it
 	// is written. It is not kept.
@@ -186,7 +188,9 @@ func (w *Window) processControls() *qt.QHBoxLayout {
 	row.AddWidget(p.filter.QWidget)
 	row.AddSpacing(12)
 	row.AddWidget(qt.NewQLabel3("Show as").QWidget)
-	row.AddWidget(p.view.QWidget)
+	for _, b := range p.view.buttons {
+		row.AddWidget(b.QWidget)
+	}
 	row.AddStretch()
 	row.AddWidget(qt.NewQLabel3("Signal").QWidget)
 	row.AddWidget(p.signals.QWidget)
@@ -234,7 +238,7 @@ func (w *Window) processOrderChanged(col int, order qt.SortOrder) {
 // processViewChanged shows the processes chosen, as they are chosen to be
 // shown, and saves the choice in the settings.
 func (w *Window) processViewChanged() {
-	filter, view := currentData(w.processes.filter), currentData(w.processes.view)
+	filter, view := currentData(w.processes.filter), w.processes.view.current()
 	if w.config.ProcessFilter != filter || w.config.ProcessView != view {
 		w.config.ProcessFilter, w.config.ProcessView = filter, view
 		w.saveConfig()
@@ -545,4 +549,76 @@ func (w *Window) sendSignal() {
 		return
 	}
 	w.StatusBar().ShowMessage(fmt.Sprintf("Sent %s to %s", s.Name, what))
+}
+
+// iconOption is one of the choices of an iconChoice: its name, shown when
+// the pointer rests on its button, the data it stands for, and how its icon
+// is drawn.
+type iconOption struct {
+	name, data string
+	draw       func(*qt.QPainter)
+}
+
+// iconChoice is a row of buttons with icons, of which one is chosen at a
+// time, as the items of a dropdown are.
+type iconChoice struct {
+	options []iconOption
+	buttons []*qt.QToolButton
+}
+
+// newIconChoice makes a button for each option, the first chosen, in a
+// group kept by the parent.
+func newIconChoice(parent *qt.QObject, options []iconOption) iconChoice {
+	c := iconChoice{options: options}
+	group := qt.NewQButtonGroup2(parent)
+	for i, o := range options {
+		b := qt.NewQToolButton2()
+		b.SetCheckable(true)
+		b.SetChecked(i == 0)
+		b.SetToolTip(o.name)
+		b.SetAccessibleName(o.name)
+		group.AddButton(b.QAbstractButton)
+		c.buttons = append(c.buttons, b)
+	}
+	return c
+}
+
+// choose checks the button of the option with the data, if there is one.
+func (c iconChoice) choose(data string) {
+	for i, o := range c.options {
+		if o.data == data {
+			c.buttons[i].SetChecked(true)
+		}
+	}
+}
+
+// current returns the data of the option chosen.
+func (c iconChoice) current() string {
+	for i, b := range c.buttons {
+		if b.IsChecked() {
+			return c.options[i].data
+		}
+	}
+	return ""
+}
+
+// onChanged calls changed whenever another option is chosen.
+func (c iconChoice) onChanged(changed func()) {
+	for _, b := range c.buttons {
+		b.OnToggled(func(checked bool) {
+			if checked {
+				changed()
+			}
+		})
+	}
+}
+
+// drawIcons draws the icon of each button in the colour, at the ratio of
+// pixels.
+func (c iconChoice) drawIcons(colour *qt.QColor, ratio float64) {
+	for i, o := range c.options {
+		icon := paintedIcon(colour, ratio, o.draw)
+		c.buttons[i].SetIcon(icon)
+		icon.Delete()
+	}
 }

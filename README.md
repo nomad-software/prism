@@ -100,8 +100,9 @@ only what is new of them, unless the scale, size or colours change.
   once, and the search is not kept for next time.
 - **Which, and how**: below the table, at the left, choose to see the
   processes of people (User, the default), the system's (System: those of
-  root, of services and of the kernel) or All of them, and to see them as a
-  List or as a Tree, each process under the one that started it. Branches
+  root, of services and of the kernel) or All of them, and, with the two
+  buttons beside "Show as", to see them as a List or as a Tree, each
+  process under the one that started it. Branches
   fold and open with the arrows beside the names, and stay as they are left;
   a process found by a search whose parent is not found is at the top. These
   choices are kept for next time too.

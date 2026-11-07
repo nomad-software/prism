@@ -19,6 +19,16 @@ import (
 	"github.com/nomad-software/prism/internal/stats"
 )
 
+// releaseImage lets go of the picture of an image that miqt returned as a
+// copy, here on the main thread, leaving it empty for its finalizer to free.
+// The finalizer runs off the main thread, where freeing a picture Qt may be
+// using at the time is not safe.
+func releaseImage(img *qt.QImage) {
+	empty := qt.NewQImage()
+	img.OperatorAssign(empty)
+	empty.Delete()
+}
+
 // render draws the widget into an image of its size.
 func render(w *qt.QWidget) *qt.QImage {
 	img := qt.NewQImage3(w.Width(), w.Height(), qt.QImage__Format_ARGB32)
@@ -238,9 +248,11 @@ func TestGraphExtends(t *testing.T) {
 		whole.Resize(600, 200)
 		whole.show(g.curvesAt, time.Minute, 100, labels, lines(), "#0000ff")
 		render(whole.QWidget).Delete()
+		// The images are copies, which their finalizers free: deleting them
+		// too would free them twice.
 		extended, stroked := g.layer.ToImage(), whole.layer.ToImage()
-		defer extended.Delete()
-		defer stroked.Delete()
+		defer releaseImage(extended)
+		defer releaseImage(stroked)
 		worst, differing := 0, 0
 		for y := range stroked.Height() {
 			for x := range stroked.Width() {
@@ -270,7 +282,7 @@ func TestGraphExtends(t *testing.T) {
 }
 
 // TestGraphAdvance checks that a graph that is shown is drawn again as it
-// moves along only once its lines have moved by a pixel, and one that is not
+// moves along only once its lines have moved by a step, and one that is not
 // shown is not drawn.
 func TestGraphAdvance(t *testing.T) {
 	mainthread.Wait(func() {
@@ -290,15 +302,18 @@ func TestGraphAdvance(t *testing.T) {
 		if drawn.IsZero() {
 			t.Fatal("the graph was not drawn when shown")
 		}
-		g.advance(drawn.Add(g.pixelTime() / 2))
+		g.advance(drawn.Add(g.stepTime() / 2))
 		qt.QCoreApplication_ProcessEvents()
 		if !g.drawn.Equal(drawn) {
-			t.Error("the graph was drawn again before its lines moved by a pixel")
+			t.Error("the graph was drawn again before its lines moved by a step")
 		}
-		g.advance(drawn.Add(g.pixelTime()))
+		g.advance(drawn.Add(g.stepTime()))
 		qt.QCoreApplication_ProcessEvents()
-		if !g.drawn.Equal(drawn.Add(g.pixelTime())) {
-			t.Error("the graph was not drawn again once its lines moved by a pixel")
+		if !g.drawn.Equal(drawn.Add(g.stepTime())) {
+			t.Error("the graph was not drawn again once its lines moved by a step")
+		}
+		if g.stepTime() != g.pixelTime()/pixelSteps {
+			t.Errorf("step %v, want a %dth of a pixel's %v", g.stepTime(), pixelSteps, g.pixelTime())
 		}
 	})
 }

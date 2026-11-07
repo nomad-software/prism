@@ -207,8 +207,8 @@ func timerInterval(interval float64) int {
 }
 
 // The time between frames is no less than minFrame, 60 frames a second, and
-// no more than maxFrame, so that a graph made wider or given a shorter span
-// soon moves as often as it then needs to.
+// no more than maxFrame, so that a graph made wider or given a shorter span,
+// or a picture shown, soon moves as often as it then needs to.
 const (
 	minFrame = time.Second / 60
 	maxFrame = time.Second
@@ -219,20 +219,32 @@ func (w *Window) graphs() []*graph {
 	return []*graph{w.cpu.graph, w.memory.graph, w.network.received, w.network.sent}
 }
 
-// frameInterval returns how often the graphs are moved along, in
-// milliseconds: as often as the fastest of their lines moves by a pixel.
+// screens returns the pictures of the processes.
+func (w *Window) screens() []*screen {
+	return []*screen{w.processes.skyline, w.processes.territories}
+}
+
+// frameInterval returns how often the graphs and pictures are moved along,
+// in milliseconds: as often as the fastest of the graphs' lines moves by a
+// step, or as often as a picture that moves, while it is shown, is drawn.
 func (w *Window) frameInterval() int {
 	interval := maxFrame
 	for _, g := range w.graphs() {
-		interval = min(interval, g.pixelTime())
+		interval = min(interval, g.stepTime())
+	}
+	for _, s := range w.screens() {
+		if s.animating() {
+			interval = min(interval, s.frameTime())
+		}
 	}
 	return int(max(interval, minFrame) / time.Millisecond)
 }
 
-// animate moves the graphs on to now, each drawn again if it is shown and its
-// lines have moved by a pixel. Their lines hold their newest values to now
-// until the next reading puts them right. Nothing is drawn while the window
-// is minimized.
+// animate moves the graphs and pictures on to now, each graph drawn again if
+// it is shown and its lines have moved by a step, and each picture if it is
+// shown and moves. The graphs' lines hold their newest values to now until the
+// next reading puts them right. Nothing is drawn while the window is
+// minimized.
 func (w *Window) animate() {
 	if ms := w.frameInterval(); w.frames.Interval() != ms {
 		w.frames.SetInterval(ms)
@@ -243,6 +255,9 @@ func (w *Window) animate() {
 	now := w.now()
 	for _, g := range w.graphs() {
 		g.advance(now)
+	}
+	for _, s := range w.screens() {
+		s.advance(now)
 	}
 }
 

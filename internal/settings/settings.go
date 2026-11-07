@@ -86,11 +86,14 @@ const (
 	ProcessesSystem = "system"
 )
 
-// The ways the processes can be shown: as a list, or as a tree of the
-// processes each started.
+// The ways the processes can be shown: as a list, as a tree of the
+// processes each started, as a skyline of towers, or as a map of hex
+// territories.
 const (
-	ViewList = "list"
-	ViewTree = "tree"
+	ViewList        = "list"
+	ViewTree        = "tree"
+	ViewSkyline     = "skyline"
+	ViewTerritories = "territories"
 )
 
 // Settings is the state that is saved to disk.
@@ -128,8 +131,9 @@ type Settings struct {
 	ProcessSort  string `json:"processSort"`
 	ProcessOrder string `json:"processOrder"`
 	// ProcessFilter is which processes are shown, ProcessesAll,
-	// ProcessesUser or ProcessesSystem, and ProcessView is ViewList or
-	// ViewTree, as they were last chosen in the window.
+	// ProcessesUser or ProcessesSystem, and ProcessView is ViewList,
+	// ViewTree, ViewSkyline or ViewTerritories, as they were last chosen in
+	// the window.
 	ProcessFilter string `json:"processFilter"`
 	ProcessView   string `json:"processView"`
 
@@ -270,7 +274,7 @@ func (s *Settings) normalise() {
 	if !slices.Contains([]string{ProcessesAll, ProcessesUser, ProcessesSystem}, s.ProcessFilter) {
 		s.ProcessFilter = d.ProcessFilter
 	}
-	if s.ProcessView != ViewList && s.ProcessView != ViewTree {
+	if !slices.Contains([]string{ViewList, ViewTree, ViewSkyline, ViewTerritories}, s.ProcessView) {
 		s.ProcessView = d.ProcessView
 	}
 	for _, i := range []struct {

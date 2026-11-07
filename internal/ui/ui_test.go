@@ -688,7 +688,7 @@ func TestAnimation(t *testing.T) {
 		}()
 		// A graph's lines move by a pixel in the time it spans over its
 		// width in pixels, and the frames come as often as the fastest
-		// moves.
+		// moves by a step, a fraction of that.
 		g := tw.cpu.graph
 		g.Resize(600, 200)
 		if want := time.Minute / time.Duration(600*g.DevicePixelRatioF()); g.pixelTime() != want {
@@ -696,7 +696,7 @@ func TestAnimation(t *testing.T) {
 		}
 		fastest := maxFrame
 		for _, g := range tw.graphs() {
-			fastest = min(fastest, g.pixelTime())
+			fastest = min(fastest, g.stepTime())
 		}
 		tw.animate()
 		if want := int(max(fastest, minFrame) / time.Millisecond); tw.frames.Interval() != want {

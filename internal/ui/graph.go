@@ -112,13 +112,23 @@ func (g *graph) show(now time.Time, span time.Duration, top float64, labels []st
 
 // advance moves the right edge of the graph on to the time, so that its
 // lines move along between readings. It is drawn again only where it is
-// shown and they have moved by a pixel of the screen since it last was, as
-// drawing it more often would not move them.
+// shown and they have moved by a step, a fraction of a pixel of the screen,
+// since it last was, as drawing it more often would not move them.
 func (g *graph) advance(now time.Time) {
 	g.now = now
-	if g.IsVisible() && now.Sub(g.drawn) >= g.pixelTime() {
+	if g.IsVisible() && now.Sub(g.drawn) >= g.stepTime() {
 		g.Update()
 	}
+}
+
+// pixelSteps is how many steps the lines of a graph move by across a pixel
+// of the screen, so that they move smoothly however slowly they go.
+const pixelSteps = 4
+
+// stepTime returns how long the lines of the graph take to move along by a
+// step.
+func (g *graph) stepTime() time.Duration {
+	return g.pixelTime() / pixelSteps
 }
 
 // pixelTime returns how long the lines of the graph take to move along by a
@@ -432,12 +442,13 @@ func (g *graph) extendCurves(r chart.Rect, from time.Time, fresh bool) bool {
 }
 
 // drawLines draws the lines of the graph in the rectangle of its grid: the
-// layer, moved along from where it was stroked to now by whole pixels of the
-// screen, which keep it as sharp as it was stroked, and each line that holds
-// drawn on from its newest point, unchanged, to the right edge.
+// layer, moved along from where it was stroked to now by steps of a fraction
+// of a pixel of the screen, smoothly scaled between pixels, and each line
+// that holds drawn on from its newest point, unchanged, to the right edge.
 func (g *graph) drawLines(p *qt.QPainter, r chart.Rect) {
-	ratio := g.look.ratio
-	dx := math.Round(-g.now.Sub(g.curvesAt).Seconds()/g.span.Seconds()*r.W*ratio) / ratio
+	steps := g.look.ratio * pixelSteps
+	dx := math.Round(-g.now.Sub(g.curvesAt).Seconds()/g.span.Seconds()*r.W*steps) / steps
+	p.SetRenderHint(qt.QPainter__SmoothPixmapTransform)
 	p.Translate2(dx, 0)
 	p.DrawPixmap9(0, 0, g.layer)
 	p.Translate2(-dx, 0)

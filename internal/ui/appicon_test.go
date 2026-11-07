@@ -6,7 +6,6 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	qt "github.com/mappu/miqt/qt6"
@@ -37,10 +36,11 @@ func macIconPNG(size, margin int) []byte {
 		return nil
 	}
 	inner := size - 2*margin
-	// A value miqt frees itself once it is no longer used, which it is kept
-	// from until it has been drawn.
+	// A value miqt frees itself once it is no longer used; its picture is
+	// let go of here, once it has been drawn, rather than by its finalizer
+	// off the main thread.
 	scaled := icon.Scaled3(inner, inner, qt.KeepAspectRatio, qt.SmoothTransformation)
-	defer runtime.KeepAlive(scaled)
+	defer releaseImage(scaled)
 
 	out := qt.NewQImage3(size, size, qt.QImage__Format_ARGB32_Premultiplied)
 	defer out.Delete()

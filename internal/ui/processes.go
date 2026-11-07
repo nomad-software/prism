@@ -54,9 +54,9 @@ const (
 )
 
 // processes is the tab of the processes: a tree of them, which can be sorted
-// by any column, shown as a list or as a tree whose branches fold, of every
-// process, those of people or the system's, and what sends the one chosen a
-// signal.
+// by any column, shown as a list or as a tree whose branches fold, or a
+// picture of them, as a skyline or as territories, of every process, those
+// of people or the system's, and what sends the one chosen a signal.
 type processes struct {
 	section
 	usage usage.Processes
@@ -65,6 +65,11 @@ type processes struct {
 	list  []usage.Process
 	shown []usage.Process
 	tree  *qt.QTreeWidget
+	// pages has the tree, the skyline and the territories, of which the one
+	// the view chooses is shown.
+	pages       *qt.QStackedWidget
+	skyline     *screen
+	territories *screen
 	// rows are the indexes in shown of the processes of the items of the
 	// tree, by the items' addresses.
 	rows map[unsafe.Pointer]int
@@ -74,8 +79,8 @@ type processes struct {
 	// search narrows the processes shown to those whose names or PIDs hold
 	// what is written in it.
 	search *qt.QLineEdit
-	// filter chooses which processes are shown, and view whether as a list
-	// or a tree.
+	// filter chooses which processes are shown, and view whether as a
+	// list, a tree, a skyline or territories.
 	filter *qt.QComboBox
 	view   iconChoice
 	// signals lists stats.Signals, by their names, and send sends the one
@@ -105,6 +110,8 @@ func (w *Window) makeProcesses() {
 	p.view = newIconChoice(p.QObject, []iconOption{
 		{"List", settings.ViewList, drawProcessesIcon},
 		{"Tree", settings.ViewTree, drawTreeIcon},
+		{"Skyline", settings.ViewSkyline, drawSkylineIcon},
+		{"Territories", settings.ViewTerritories, drawTerritoriesIcon},
 	})
 	p.view.choose(w.config.ProcessView)
 	p.filter.OnCurrentIndexChanged(func(int) { w.processViewChanged() })
@@ -119,7 +126,17 @@ func (w *Window) makeProcesses() {
 	p.layout.AddWidget(p.search.QWidget)
 
 	w.makeProcessTree()
-	p.layout.AddWidget2(p.tree.QWidget, 1)
+	p.skyline = newSkyline()
+	p.territories = newTerritories()
+	p.pages = qt.NewQStackedWidget2()
+	for _, page := range []*qt.QWidget{p.tree.QWidget, p.skyline.QWidget, p.territories.QWidget} {
+		p.pages.AddWidget(page)
+	}
+	for _, s := range []*screen{p.skyline, p.territories} {
+		s.choose = w.chooseShown
+	}
+	p.showPage(p.picture(w.config.ProcessView))
+	p.layout.AddWidget2(p.pages.QWidget, 1)
 	p.layout.AddLayout(w.processControls().QLayout)
 }
 
@@ -300,17 +317,85 @@ func (w *Window) sampleProcesses() {
 	w.showProcesses()
 }
 
-// showProcesses lists the processes the settings choose in the tree, as a
-// list or a tree, sorted as its header says. The tree is made again each
-// time, with nothing drawn until it is done, and with the branches folded
-// that were, the process chosen still chosen if it is still listed, and
-// scrolled as it was.
+// showProcesses shows the processes the settings choose as they choose: in
+// the tree, or as a picture.
 func (w *Window) showProcesses() {
+	p := &w.processes
+	p.shown = filterProcesses(p.list, w.config.ProcessFilter, p.search.Text())
+	pictured := p.picture(w.config.ProcessView)
+	p.showPage(pictured)
+	if pictured == nil {
+		w.fillProcessTree()
+		return
+	}
+	// The tree is emptied while it is not shown, as it would list processes
+	// that are not those shown, and filled again when it is.
+	p.filling = true
+	p.tree.Clear()
+	p.rows = nil
+	p.filling = false
+	if p.chosen != nil && !slices.ContainsFunc(p.shown, func(proc usage.Process) bool { return proc.Key() == p.chosen.Key() }) {
+		p.chosen = nil
+	}
+	pictured.show(w.now(), p.shown, w.units(), p.chosenKey())
+	p.enableSend()
+}
+
+// picture returns the screen of the view, or nil for the list and the tree.
+func (p *processes) picture(view string) *screen {
+	switch view {
+	case settings.ViewSkyline:
+		return p.skyline
+	case settings.ViewTerritories:
+		return p.territories
+	}
+	return nil
+}
+
+// showPage shows the picture, or the tree if it is nil.
+func (p *processes) showPage(pictured *screen) {
+	if pictured == nil {
+		p.pages.SetCurrentWidget(p.tree.QWidget)
+	} else {
+		p.pages.SetCurrentWidget(pictured.QWidget)
+	}
+}
+
+// chosenKey returns the key of the process chosen, or nil.
+func (p *processes) chosenKey() *stats.ProcessKey {
+	if p.chosen == nil {
+		return nil
+	}
+	key := p.chosen.Key()
+	return &key
+}
+
+// chooseShown chooses the process of the index in those shown, as one is
+// clicked in a picture of them, or none for -1, and lets it be sent a
+// signal.
+func (w *Window) chooseShown(i int) {
+	p := &w.processes
+	p.chosen = nil
+	if i >= 0 && i < len(p.shown) {
+		proc := p.shown[i].Process
+		p.chosen = &proc
+	}
+	for _, s := range []*screen{p.skyline, p.territories} {
+		s.setChosen(p.chosenKey())
+	}
+	p.enableSend()
+}
+
+// fillProcessTree lists the processes shown in the tree, as a list or a
+// tree, sorted as its header says. The tree is made again each time, with
+// nothing drawn until it is done, and with the branches folded that were,
+// the process chosen still chosen if it is still listed, and scrolled as it
+// was.
+func (w *Window) fillProcessTree() {
 	p := &w.processes
 	p.filling = true
 	defer func() { p.filling = false }()
 	header := p.tree.Header()
-	p.shown = filterProcesses(p.list, w.config.ProcessFilter, p.search.Text())
 	column, descending := header.SortIndicatorSection(), header.SortIndicatorOrder() == qt.DescendingOrder
 	tree := w.config.ProcessView == settings.ViewTree
 	var depths []int

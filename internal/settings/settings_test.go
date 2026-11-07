@@ -71,7 +71,7 @@ func TestSaveLoad(t *testing.T) {
 	s.Intervals = Intervals{CPU: 0.5, Memory: 30, Network: MaxInterval, Processes: 4.5}
 	s.CPUMode = CPUTotal
 	s.ProcessSort, s.ProcessOrder = SortName, OrderAscending
-	s.ProcessFilter, s.ProcessView = ProcessesUser, ViewTree
+	s.ProcessFilter, s.ProcessView = ProcessesUser, ViewSkyline
 	s.Colours.Grid = "#ff112233"
 	s.Colours.SetCore(2, "#abcdef")
 	s.Colours.Network["eth0"] = "#010203"

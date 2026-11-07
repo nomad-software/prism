@@ -476,22 +476,36 @@ func TestTabShortcuts(t *testing.T) {
 // iconLightness returns the lightness of the most opaque pixel of the icon,
 // from 0 to 255, or -1 if it has none.
 func iconLightness(icon *qt.QIcon) int {
-	pixmap := icon.Pixmap2(iconSize, iconSize)
-	img := pixmap.ToImage()
+	// The icon is drawn into an image of the test's own, which is deleted
+	// here, on the main thread. The copies miqt returns of a pixmap or an
+	// image are freed by their finalizers, off the main thread, while Qt
+	// can be drawing on it, which now and then crashed the tests.
+	img := qt.NewQImage3(iconSize, iconSize, qt.QImage__Format_ARGB32)
+	defer img.Delete()
+	img.Fill(0)
+	p := qt.NewQPainter2(img.QPaintDevice)
+	rect := qt.NewQRect4(0, 0, iconSize, iconSize)
+	icon.Paint(p, rect)
+	rect.Delete()
+	p.End()
+	p.Delete()
 	best, lightness := 0, -1
 	for y := range img.Height() {
 		for x := range img.Width() {
-			c := img.PixelColor(x, y)
-			if c.Alpha() > best {
-				best, lightness = c.Alpha(), c.Lightness()
+			// The pixel is 0xAARRGGBB, not premultiplied.
+			px := uint32(img.Pixel(x, y))
+			c := qt.NewQColor4(uint(px))
+			if alpha := int(px >> 24); alpha > best {
+				best, lightness = alpha, c.Lightness()
 			}
+			c.Delete()
 		}
 	}
 	return lightness
 }
 
 // TestIconsFollowTheme checks that the icons of the tabs and of the buttons
-// that show the processes as a list or a tree are in the colour of text.
+// that choose how the processes are shown are in the colour of text.
 func TestIconsFollowTheme(t *testing.T) {
 	tw := newTestWindow(t, func(s *settings.Settings) { s.Theme = settings.ThemeDark })
 	mainthread.Wait(func() {
@@ -609,7 +623,7 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 		qt.QCoreApplication_ProcessEvents()
 		p := &tw.processes
 		filter, view := p.filter.Geometry(), p.view.buttons[0].Geometry()
-		table := p.tree.Geometry()
+		table := p.pages.Geometry()
 		var items []string
 		for i := range p.filter.Count() {
 			items = append(items, p.filter.ItemText(i))
@@ -646,7 +660,7 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 			}
 			names = append(names, b.ToolTip())
 		}
-		if !slices.Equal(names, []string{"List", "Tree"}) {
+		if !slices.Equal(names, []string{"List", "Tree", "Skyline", "Territories"}) {
 			t.Errorf("view buttons = %q", names)
 		}
 		if tree := p.view.buttons[1].Geometry(); tree.Left() <= view.Right() || tree.Top() != view.Top() {
@@ -677,7 +691,7 @@ func TestProcessSearch(t *testing.T) {
 		p := &tw.processes
 		tw.tabs.SetCurrentIndex(tabProcesses)
 		qt.QCoreApplication_ProcessEvents()
-		if p.search.Geometry().Bottom() >= p.tree.Geometry().Top() {
+		if p.search.Geometry().Bottom() >= p.pages.Geometry().Top() {
 			t.Error("the search is not above the table")
 		}
 		tw.sampleProcesses()
@@ -845,4 +859,198 @@ func TestProcessesUnchosen(t *testing.T) {
 	if len(tw.source.signalled) != 0 {
 		t.Errorf("signalled %q", tw.source.signalled)
 	}
+}
+
+// TestProcessPictures checks that the processes are shown as a skyline and
+// as territories, of those the filter and search choose, and that clicking
+// one chooses it, as it stays chosen in the tree.
+func TestProcessPictures(t *testing.T) {
+	tw := newTestWindow(t, showAll)
+	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
+	mainthread.Wait(func() {
+		p := &tw.processes
+		tw.sampleProcesses()
+		tw.tabs.SetCurrentIndex(tabProcesses)
+		for _, c := range []struct {
+			view   string
+			screen *screen
+		}{{settings.ViewSkyline, p.skyline}, {settings.ViewTerritories, p.territories}} {
+			p.view.choose(c.view)
+			qt.QCoreApplication_ProcessEvents()
+			if p.pages.CurrentWidget().UnsafePointer() != c.screen.UnsafePointer() || !c.screen.IsVisible() {
+				t.Fatalf("%s: the picture is not shown", c.view)
+			}
+			if len(c.screen.procs) != len(treeProcesses) {
+				t.Errorf("%s: %d processes pictured, want %d", c.view, len(c.screen.procs), len(treeProcesses))
+			}
+			if p.tree.TopLevelItemCount() != 0 {
+				t.Errorf("%s: the tree is filled while it is not shown", c.view)
+			}
+			// Clicking a process chooses it; clicking where there is none
+			// chooses none.
+			x, y, ok := pointAt(c.screen, "bash")
+			if !ok {
+				t.Fatalf("%s: bash is nowhere to be clicked", c.view)
+			}
+			c.screen.choose(c.screen.at(x, y))
+			if p.chosen == nil || p.chosen.Name != "bash" || !p.send.IsEnabled() {
+				t.Errorf("%s: chosen = %+v, want bash", c.view, p.chosen)
+			}
+			if c.screen.chosenIndex() < 0 || c.screen.procs[c.screen.chosenIndex()].Name != "bash" {
+				t.Errorf("%s: bash is not ringed", c.view)
+			}
+			c.screen.choose(c.screen.at(1, 1))
+			if p.chosen != nil || p.send.IsEnabled() {
+				t.Errorf("%s: a process is chosen where there is none", c.view)
+			}
+			// The search narrows what is pictured.
+			p.search.SetText("vi")
+			if len(c.screen.procs) != 1 || c.screen.procs[0].Name != "vim" {
+				t.Errorf("%s: searched, %d pictured", c.view, len(c.screen.procs))
+			}
+			p.search.Clear()
+		}
+		// The one chosen in a picture is chosen in the tree.
+		x, y, _ := pointAt(p.territories, "vim")
+		p.territories.choose(p.territories.at(x, y))
+		p.view.choose(settings.ViewList)
+		if row := chosenRow(tw); row < 0 || column(tw, colProcessName)[row] != "vim" {
+			t.Errorf("chosen row %d, want vim", row)
+		}
+	})
+	if s := settings.Load(tw.path); s.ProcessView != settings.ViewList {
+		t.Errorf("saved view %q", s.ProcessView)
+	}
+}
+
+// pointAt returns a point of the screen at which the process of the name is,
+// as laid out now.
+func pointAt(s *screen, name string) (x, y float64, ok bool) {
+	s.fresh()
+	for y := 0; y < s.Height(); y += 2 {
+		for x := 0; x < s.Width(); x += 2 {
+			if i := s.at(float64(x), float64(y)); i >= 0 && s.procs[i].Name == name {
+				return float64(x), float64(y), true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// TestPictureView checks that a picture is saved as the view and shown again
+// when the window is made again.
+func TestPictureView(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) { s.ProcessView = settings.ViewTerritories })
+	mainthread.Wait(func() {
+		if tw.processes.view.current() != settings.ViewTerritories ||
+			tw.processes.pages.CurrentWidget().UnsafePointer() != tw.processes.territories.UnsafePointer() {
+			t.Error("the territories are not shown as the settings say")
+		}
+	})
+}
+
+// TestPicturesMove checks that a picture that is shown is drawn at 60 frames
+// a second, and that the towers of the skyline rise to their heights after a
+// reading, and are at them at once after a resize.
+func TestPicturesMove(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessView = settings.ViewSkyline
+	})
+	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
+	mainthread.Wait(func() {
+		p := &tw.processes
+		tw.tabs.SetCurrentIndex(tabProcesses)
+		tw.sampleProcesses()
+		qt.QCoreApplication_ProcessEvents()
+		if !p.skyline.animating() {
+			t.Fatal("the skyline shown does not move")
+		}
+		// It is drawn as often as frames can be when it is quick to draw,
+		// as TestPictureFrameTime checks it is not when it is slow.
+		p.skyline.cost = 0
+		tw.animate()
+		if want := int(minFrame / time.Millisecond); tw.frames.Interval() != want {
+			t.Errorf("frames every %d ms with the skyline shown, want %d", tw.frames.Interval(), want)
+		}
+		k := p.skyline.picture.(*skyline)
+		p.skyline.fresh()
+		if len(k.city.Towers) == 0 {
+			t.Fatal("no towers")
+		}
+		// The towers rise from the ground at the first reading, slowing as
+		// they reach their heights.
+		read := p.skyline.now
+		for i, tower := range k.city.Towers {
+			if k.height(i, read) != 0 {
+				t.Errorf("tower %d starts at %v, not the ground", i, k.height(i, read))
+			}
+			half := k.height(i, read.Add(riseTime/2))
+			if half <= tower.Height/2 || half >= tower.Height {
+				t.Errorf("tower %d is at %v of %v half way", i, half, tower.Height)
+			}
+			if k.height(i, read.Add(riseTime)) != tower.Height || k.height(i, read.Add(time.Hour)) != tower.Height {
+				t.Errorf("tower %d does not stop at its height", i)
+			}
+		}
+		// A resize leaves them at their heights.
+		tw.Resize(tw.Width()+40, tw.Height())
+		qt.QCoreApplication_ProcessEvents()
+		p.skyline.fresh()
+		for i, tower := range k.city.Towers {
+			if k.height(i, p.skyline.now) != tower.Height {
+				t.Errorf("tower %d rises again after a resize", i)
+			}
+		}
+
+		// The territories of busy processes pulse, and with neither picture
+		// shown the frames come only as often as the graphs need.
+		p.view.choose(settings.ViewTerritories)
+		qt.QCoreApplication_ProcessEvents()
+		if p.territories.animating() {
+			t.Error("the territories move with no process busy")
+		}
+	})
+	tw.advance(time.Second)
+	tw.source.set(func(f *fakeSource) {
+		f.procs = slices.Clone(treeProcesses)
+		f.procs[4].CPU = 500 * time.Millisecond
+	})
+	mainthread.Wait(func() {
+		p := &tw.processes
+		tw.sampleProcesses()
+		qt.QCoreApplication_ProcessEvents()
+		if !p.territories.animating() || p.skyline.animating() {
+			t.Error("the territories shown do not move, or the skyline hidden does")
+		}
+		p.view.choose(settings.ViewList)
+		qt.QCoreApplication_ProcessEvents()
+		tw.animate()
+		fastest := maxFrame
+		for _, g := range tw.graphs() {
+			fastest = min(fastest, g.stepTime())
+		}
+		if want := int(max(fastest, minFrame) / time.Millisecond); tw.frames.Interval() != want {
+			t.Errorf("frames every %d ms with no picture shown, want %d", tw.frames.Interval(), want)
+		}
+	})
+}
+
+// TestPictureFrameTime checks that a picture that is slow to draw is drawn
+// less often, so that drawing it takes no more than a share of a processor.
+func TestPictureFrameTime(t *testing.T) {
+	mainthread.Wait(func() {
+		s := newSkyline()
+		defer s.Delete()
+		for _, c := range []struct{ cost, want time.Duration }{
+			{time.Millisecond, minFrame},
+			{20 * time.Millisecond, 20 * time.Millisecond * frameShare},
+			{time.Second, maxFrame},
+		} {
+			s.cost = c.cost
+			if got := s.frameTime(); got != c.want {
+				t.Errorf("drawn in %v, frames every %v, want %v", c.cost, got, c.want)
+			}
+		}
+	})
 }

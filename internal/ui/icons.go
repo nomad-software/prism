@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"math"
+
 	qt "github.com/mappu/miqt/qt6"
 )
 
@@ -101,3 +103,63 @@ func drawPolyline(p *qt.QPainter, points [][2]float64) {
 	}
 	p.DrawPath(path)
 }
+
+// drawSkylineIcon draws a skyline: three towers of different heights,
+// outlined, standing on a line.
+func drawSkylineIcon(p *qt.QPainter) {
+	for _, tower := range [][3]float64{{2.5, 5.5, 8.5}, {6.5, 9.5, 2.5}, {10.5, 13.5, 6.5}} {
+		left, right, top := tower[0], tower[1], tower[2]
+		strokeSharp(p, 1, [2]float64{left, 14}, [2]float64{left, top}, [2]float64{right, top}, [2]float64{right, 14})
+	}
+	strokeSharp(p, 1, [2]float64{1, 14.5}, [2]float64{iconSize - 1, 14.5})
+}
+
+// drawTerritoriesIcon draws a honeycomb of three hexagons, the top one
+// filled, as a territory.
+func drawTerritoriesIcon(p *qt.QPainter) {
+	const radius = 3.5
+	pen := p.Pen()
+	pen.SetWidthF(1.2)
+	p.SetPenWithPen(pen)
+	across := radius * 1.7320508
+	for i, centre := range [][2]float64{{8, 4.5}, {8 - across/2, 9.75}, {8 + across/2, 9.75}} {
+		path := qt.NewQPainterPath()
+		for corner := range 6 {
+			x := centre[0] + radius*cosDegrees(30+60*corner)
+			y := centre[1] + radius*sinDegrees(30+60*corner)
+			if corner == 0 {
+				path.MoveTo2(x, y)
+			} else {
+				path.LineTo2(x, y)
+			}
+		}
+		path.CloseSubpath()
+		p.DrawPath(path)
+		path.Delete()
+		if i == 0 {
+			// The top one is filled by a wide stroke of a hexagon inside it,
+			// in the colour of the pen.
+			pen.SetWidthF(radius)
+			p.SetPenWithPen(pen)
+			inner := qt.NewQPainterPath()
+			for corner := range 6 {
+				x := centre[0] + radius/2*cosDegrees(30+60*corner)
+				y := centre[1] + radius/2*sinDegrees(30+60*corner)
+				if corner == 0 {
+					inner.MoveTo2(x, y)
+				} else {
+					inner.LineTo2(x, y)
+				}
+			}
+			inner.CloseSubpath()
+			p.DrawPath(inner)
+			inner.Delete()
+			pen.SetWidthF(1.2)
+			p.SetPenWithPen(pen)
+		}
+	}
+}
+
+// cosDegrees and sinDegrees are the cosine and sine of the angle in degrees.
+func cosDegrees(degrees int) float64 { return math.Cos(float64(degrees) * math.Pi / 180) }
+func sinDegrees(degrees int) float64 { return math.Sin(float64(degrees) * math.Pi / 180) }

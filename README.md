@@ -23,9 +23,9 @@ It is written in Go with Qt 6, through the
   `/proc` and `/sys` on Linux and through the system's own calls on macOS.
 - **It is light.** One program, one window, and one copy running at a time;
   each statistic is read at an interval of its own, from a tenth of a second
-  to an hour, so it costs as little as wanted; and the graphs are drawn only
-  as often as their lines move by a pixel, and not at all while they are
-  out of sight.
+  to an hour, so it costs as little as wanted; and the graphs glide, drawn
+  only as often as their lines move by a quarter of a pixel, up to 60 times
+  a second, and not at all while they are out of sight.
 - **It looks right on the desktop.** A native Qt program that follows the
   desktop's light or dark theme, or one of its own, with colours that read
   well on either, every one of which can be chosen. It remembers its size,
@@ -101,11 +101,30 @@ only what is new of them, unless the scale, size or colours change.
 - **Which, and how**: below the table, at the left, choose to see the
   processes of people (User, the default), the system's (System: those of
   root, of services and of the kernel) or All of them, and, with the two
-  buttons beside "Show as", to see them as a List or as a Tree, each
-  process under the one that started it. Branches
-  fold and open with the arrows beside the names, and stay as they are left;
-  a process found by a search whose parent is not found is at the top. These
-  choices are kept for next time too.
+  four buttons beside "Show as", to see them as a List, as a Tree, each
+  process under the one that started it, as a Skyline or as Territories.
+  Branches fold and open with the arrows beside the names, and stay as they
+  are left; a process found by a search whose parent is not found is at the
+  top. These choices are kept for next time too.
+- **Pictures**: the Skyline and Territories draw the processes as neon on a
+  dark screen of their own, in any theme, each coloured by how busy it is,
+  from cyan when idle through violet and magenta to yellow at a whole
+  processor or more. The **Skyline** is a city at night seen from above at an
+  angle: a tower for each process, as tall as it is busy, on as much ground as
+  it has memory, with more of its windows lit the busier it is; the largest
+  stand in the middle, and the busiest are named. The **Territories** are a
+  map of hexagons, each a size of memory (the caption says which): each
+  process holds as many as its memory comes to, the largest in the middle,
+  and the panel at the right lists the busiest. Point at a process for a card
+  of its name, PID, CPU, cores used and memory; click it to choose it for a
+  signal, and it stays chosen in the List and Tree. The search and the choice
+  of processes narrow the pictures as they do the table. They move at up to
+  60 frames a second while shown: towers rise and fall smoothly to each
+  reading, the tops of busy ones pulse and their windows flicker, and busy
+  territories pulse outward in rings, all the faster the busier the process.
+  Idle processes are still and drawn once, and a picture that is slow to
+  draw is drawn less often, so that it never takes more than a quarter of a
+  processor.
 - **Signals**: choose a process, then a signal (SIGKILL unless another is
   chosen), and **Send Signal** sends it; the status bar says whether it was
   sent. A process that has ended in the meantime is not sent it, even if its

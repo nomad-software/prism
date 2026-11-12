@@ -1,9 +1,9 @@
 package ui
 
 import (
-	"runtime"
-
-	qt "github.com/mappu/miqt/qt6"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
+	"github.com/nomad-software/qute/qtwidgets"
 
 	"github.com/nomad-software/prism/internal/chart"
 )
@@ -24,7 +24,7 @@ type entry struct {
 // names and straight after each name, as the use of memory and the rates of
 // the network adapters are.
 type legend struct {
-	*qt.QWidget
+	qtwidgets.QWidgetBase
 	entries []entry
 	faint   bool
 	// labelWidth is the widest name shown, which the names' column is as
@@ -51,42 +51,53 @@ const faintOpacity = 0.4
 
 // newLegend returns an empty legend, whose values are faint if it is.
 func newLegend(faint bool) *legend {
-	l := &legend{QWidget: qt.NewQWidget2(), faint: faint, hovered: -1}
-	l.SetSizePolicy2(qt.QSizePolicy__Expanding, qt.QSizePolicy__Fixed)
+	l := &legend{faint: faint, hovered: -1}
+	qtwidgets.NewQWidgetWith(l, nil)
+	l.SetSizePolicy(qtwidgets.NewQSizePolicyWithPolicy(qtwidgets.QSizePolicyExpanding, qtwidgets.QSizePolicyFixed))
 	l.SetFixedHeight(0)
-	l.OnPaintEvent(func(_ func(*qt.QPaintEvent), _ *qt.QPaintEvent) { l.paint() })
 	// A swatch is a shortcut to the setting of its colour: the pointer is
 	// a hand over it, and clicking it chooses another.
 	l.SetMouseTracking(true)
-	l.OnMouseMoveEvent(func(super func(*qt.QMouseEvent), e *qt.QMouseEvent) {
-		super(e)
-		// The position is a copy the garbage collector frees, as is any
-		// value miqt returns by value: deleting it as well frees it twice.
-		pos := e.Position()
-		l.hover(l.swatchAt(pos.X(), pos.Y()))
-	})
-	l.OnLeaveEvent(func(super func(*qt.QEvent), e *qt.QEvent) {
-		super(e)
-		l.hover(-1)
-	})
-	l.OnMousePressEvent(func(super func(*qt.QMouseEvent), e *qt.QMouseEvent) {
-		pos := e.Position()
-		if e.Button() != qt.LeftButton || !l.click(pos.X(), pos.Y()) {
-			super(e)
-		}
-	})
-	l.OnResizeEvent(func(super func(*qt.QResizeEvent), e *qt.QResizeEvent) {
-		super(e)
-		l.fit()
-	})
 	return l
+}
+
+// PaintEvent draws the legend.
+func (l *legend) PaintEvent(*qtgui.QPaintEvent) {
+	l.paint()
+}
+
+// MouseMoveEvent rings the swatch the pointer is over.
+func (l *legend) MouseMoveEvent(e *qtgui.QMouseEvent) {
+	l.Super().MouseMoveEvent(e)
+	pos := e.Position()
+	l.hover(l.swatchAt(pos.X, pos.Y))
+}
+
+// LeaveEvent takes the ring away as the pointer leaves.
+func (l *legend) LeaveEvent(e *qtcore.QEvent) {
+	l.Super().LeaveEvent(e)
+	l.hover(-1)
+}
+
+// MousePressEvent chooses the colour of the swatch clicked.
+func (l *legend) MousePressEvent(e *qtgui.QMouseEvent) {
+	pos := e.Position()
+	if e.Button() != qtcore.LeftButton || !l.click(pos.X, pos.Y) {
+		l.Super().MousePressEvent(e)
+	}
+}
+
+// ResizeEvent makes the legend as high as its entries need at its width.
+func (l *legend) ResizeEvent(e *qtgui.QResizeEvent) {
+	l.Super().ResizeEvent(e)
+	l.fit()
 }
 
 // show has the legend show the entries.
 func (l *legend) show(entries []entry) {
 	l.entries = entries
 	fm := l.FontMetrics()
-	defer runtime.KeepAlive(fm)
+	defer fm.Delete()
 	// The names change only when an adapter is hidden, shown or renamed, so
 	// their column fits those shown now, leaving no gap after the longest.
 	l.labelWidth = 0
@@ -121,7 +132,7 @@ func (l *legend) height() int {
 		return 0
 	}
 	fm := l.FontMetrics()
-	defer runtime.KeepAlive(fm)
+	defer fm.Delete()
 	return g.Rows*entryHeight(fm.Height()) + (g.Rows-1)*rowGap
 }
 
@@ -145,7 +156,7 @@ func (l *legend) swatchPlace(i int, g chart.Grid, lineHeight int) (x, y float64)
 // -1 if there is none.
 func (l *legend) swatchAt(x, y float64) int {
 	fm := l.FontMetrics()
-	defer runtime.KeepAlive(fm)
+	defer fm.Delete()
 	g := l.grid()
 	for i := range l.entries {
 		sx, sy := l.swatchPlace(i, g, fm.Height())
@@ -181,7 +192,7 @@ func (l *legend) hover(i int) {
 	}
 	l.hovered = i
 	if i >= 0 {
-		cursor := qt.NewQCursor2(qt.PointingHandCursor)
+		cursor := qtgui.NewQCursorWithCursorShape(qtcore.PointingHandCursor)
 		defer cursor.Delete()
 		l.SetCursor(cursor)
 	} else {
@@ -192,23 +203,23 @@ func (l *legend) hover(i int) {
 
 // paint draws the legend.
 func (l *legend) paint() {
-	p := qt.NewQPainter2(l.QPaintDevice)
-	defer p.Delete()
-	defer p.End()
-	p.SetRenderHint(qt.QPainter__Antialiasing)
+	qtgui.PaintOn(l, l.paintWith)
+}
+
+// paintWith draws the legend with the painter, as paint has it.
+func (l *legend) paintWith(p *qtgui.QPainter) {
+	p.SetRenderHint(qtgui.QPainterAntialiasing)
 
 	fm := l.FontMetrics()
-	defer runtime.KeepAlive(fm)
+	defer fm.Delete()
 	lineHeight := fm.Height()
 	height := entryHeight(lineHeight)
 	g := l.grid()
 
 	palette := l.Palette()
-	defer runtime.KeepAlive(palette)
-	text := palette.ColorWithCr(qt.QPalette__WindowText)
-	faint := qt.NewQColor10(text)
-	defer faint.Delete()
-	faint.SetAlphaF(faintOpacity)
+	defer palette.Delete()
+	text := palette.Color(qtgui.QPaletteWindowText)
+	faint := withAlpha(text, faintOpacity)
 
 	for i, e := range l.entries {
 		// The swatch is where clicks find it.
@@ -221,17 +232,17 @@ func (l *legend) paint() {
 		_, row := g.Cell(i)
 		x := sx + swatchWidth + legendGap
 		y := float64(row * (height + rowGap))
-		p.SetPen(text)
-		drawText(p, x, y, float64(l.labelWidth), float64(lineHeight), int(qt.AlignLeft|qt.AlignVCenter), e.label)
+		p.SetPenColor(text)
+		drawText(p, x, y, float64(l.labelWidth), float64(lineHeight), int(qtcore.AlignLeft|qtcore.AlignVCenter), e.label)
 		// The values of the processors are at the right of a column of
 		// their own, so that they line up; a faint value follows straight
 		// on from its own name.
-		vx, align := x+float64(l.labelWidth+legendGap), qt.AlignRight
+		vx, align := x+float64(l.labelWidth+legendGap), qtcore.AlignRight
 		if l.faint {
-			p.SetPen(faint)
-			vx, align = x+float64(fm.HorizontalAdvance(e.label)+legendGap), qt.AlignLeft
+			p.SetPenColor(faint)
+			vx, align = x+float64(fm.HorizontalAdvance(e.label)+legendGap), qtcore.AlignLeft
 		}
-		drawText(p, vx, y, float64(l.valueWidth), float64(lineHeight), int(align|qt.AlignVCenter), e.value)
+		drawText(p, vx, y, float64(l.valueWidth), float64(lineHeight), int(align|qtcore.AlignVCenter), e.value)
 	}
 }
 
@@ -241,28 +252,20 @@ const ringWidth = 1.5
 // drawRing draws a ring in the colour just inside the edge of the swatch
 // with its top left corner at the place, where the edge of the legend does
 // not cut it off.
-func drawRing(p *qt.QPainter, colour *qt.QColor, x, y float64) {
-	pen := qt.NewQPen3(colour)
+func drawRing(p *qtgui.QPainter, colour qtgui.QColor, x, y float64) {
+	pen := qtgui.NewQPenWithColor(colour)
 	defer pen.Delete()
 	pen.SetWidthF(ringWidth)
-	p.SetPenWithPen(pen)
-	p.SetBrushWithStyle(qt.NoBrush)
+	p.SetPen(pen)
+	p.SetBrushStyle(qtcore.NoBrush)
 	inset := ringWidth / 2
-	r := qt.NewQRectF4(x+inset, y+inset, swatchWidth-2*inset, swatchHeight-2*inset)
-	defer r.Delete()
-	p.DrawRoundedRect(r, 3, 3)
+	p.DrawRoundedRectF(rectF(x+inset, y+inset, swatchWidth-2*inset, swatchHeight-2*inset), 3, 3)
 }
 
 // drawSwatch draws the swatch of a colour, as the settings write it, with
 // its top left corner at the place.
-func drawSwatch(p *qt.QPainter, colour string, x, y float64) {
-	c := qt.NewQColor6(colour)
-	defer c.Delete()
-	brush := qt.NewQBrush3(c)
-	defer brush.Delete()
-	r := qt.NewQRectF4(x, y, swatchWidth, swatchHeight)
-	defer r.Delete()
-	p.SetPenWithStyle(qt.NoPen)
-	p.SetBrush(brush)
-	p.DrawRoundedRect(r, 3, 3)
+func drawSwatch(p *qtgui.QPainter, colour string, x, y float64) {
+	p.SetPenStyle(qtcore.NoPen)
+	p.SetBrushColor(parseColour(colour))
+	p.DrawRoundedRectF(rectF(x, y, swatchWidth, swatchHeight), 3, 3)
 }

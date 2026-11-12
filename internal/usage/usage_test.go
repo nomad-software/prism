@@ -92,12 +92,10 @@ func TestProcesses(t *testing.T) {
 		{PID: 1, Start: 5, CPU: 4 * time.Second},
 		// A process given the PID of one that ended is new.
 		{PID: 1, Start: 6, CPU: time.Second},
-		{PID: 2, Restricted: true},
 	}, 4)
 	want := []Process{
 		{PID: 1, Start: 5, CPU: 4 * time.Second, Busy: 150, Measured: true},
 		{PID: 1, Start: 6, CPU: time.Second},
-		{PID: 2, Restricted: true},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("second = %+v, want %+v", got, want)

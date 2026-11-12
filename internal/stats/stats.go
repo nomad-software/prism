@@ -1,6 +1,5 @@
-// Package stats reads what the system says of its processors, memory,
-// network adapters and processes: on Linux from /proc and /sys, and on macOS
-// from the kernel's own interfaces. It reads counters as they are at one
+// Package stats reads what Linux says of its processors, memory, network
+// adapters and processes, from /proc and /sys. It reads counters as they are at one
 // moment; working out how they change is left to the caller. It has no
 // dependency on the UI.
 package stats
@@ -71,12 +70,8 @@ type Process struct {
 	// CPU is the time it has spent running, in user and system time, of
 	// every thread together.
 	CPU time.Duration
-	// Memory is how much memory it has, in bytes: on Linux what is resident,
-	// and on macOS its footprint, as Activity Monitor counts it.
+	// Memory is how much memory it has resident, in bytes.
 	Memory uint64
-	// Restricted says that its time and memory could not be read, as those
-	// of other users' processes cannot on macOS but by root.
-	Restricted bool
 	// Kernel says that it is a thread of the Linux kernel, which has no
 	// memory of its own to count; what it uses is the kernel's.
 	Kernel bool
@@ -95,13 +90,13 @@ func (p Process) Key() ProcessKey {
 }
 
 // MemoryKnown says whether Memory says how much memory the process has: it does
-// not where it could not be read, or of a thread of the kernel.
+// not of a thread of the kernel, whose memory is the kernel's.
 func (p Process) MemoryKnown() bool {
-	return !p.Restricted && !p.Kernel
+	return !p.Kernel
 }
 
-// nobodyUIDs are the user IDs of nobody: 65534 on Linux, and -2 on macOS,
-// which is unsigned there.
+// nobodyUIDs are the user IDs of nobody: 65534, and -2 as unsigned, which
+// older systems gave nfsnobody.
 var nobodyUIDs = []int{65534, 1<<32 - 2}
 
 // System says whether the process is the system's, rather than that of a
@@ -124,7 +119,11 @@ type Source interface {
 	Signal(p Process, number int) error
 }
 
+// firstUserUID is the first user ID Linux gives people, as UID_MIN in
+// /etc/login.defs is by default.
+const firstUserUID = 1000
+
 // New returns the source of the system the program runs on.
 func New() Source {
-	return newSystem()
+	return Linux{Root: "/"}
 }

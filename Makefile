@@ -1,10 +1,15 @@
 BINARY := prism
 
+# Only what is made is put here: the binary by build, and the AppImage by
+# appimage. Go compiles in a folder of its own in the temporary folder, and
+# the AppImage is put together in BUILD_DIR.
+BUILD_DIR := $(or $(TMPDIR),/tmp)/prism-build
+
 # -s -w leaves out the symbol table and debug information, which roughly
 # halves the size of the binary.
 LDFLAGS := -s -w
 
-.PHONY: build run test vet screenshot icons appimage macos clean
+.PHONY: build run test bench vet screenshot appimage clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -19,6 +24,11 @@ TEST_TIMEOUT := 5m
 test:
 	go test -timeout $(TEST_TIMEOUT) ./...
 
+# Times what the window does over and over as it runs: a frame of the
+# graphs, a reading, a refresh of the processes and the whole window drawn.
+bench:
+	go test -run '^$$' -bench . -benchmem -count 5 -timeout $(TEST_TIMEOUT) ./internal/ui/
+
 vet:
 	go vet ./...
 
@@ -28,24 +38,12 @@ screenshot:
 	mkdir -p docs
 	PRISM_SCREENSHOT=$(CURDIR)/docs/screenshot.png go test -count=1 -timeout $(TEST_TIMEOUT) -run '^TestScreenshot$$' ./internal/ui/
 
-# Draws the icon of the macOS app, packaging/macos/prism.png, from the
-# program's icon, within the margin Apple's grid gives icons. Run it again
-# whenever the icon changes; a test says when it has not been.
-icons:
-	PRISM_ICONS=$(CURDIR)/packaging go test -count=1 -timeout $(TEST_TIMEOUT) -run '^TestWriteIcons$$' ./internal/ui/
-
 # Packs the program and the Qt libraries it uses into one file that runs
 # without installing anything. Releases are made by the GitHub workflow, on
 # an old distribution so that they run on more systems.
 appimage:
-	packaging/appimage.sh
-
-# Builds the macOS app for Apple Silicon, with Qt inside it, in a disk image.
-# It runs on a Mac with Homebrew's Qt; releases are made by the GitHub
-# workflow.
-macos:
-	packaging/macos.sh
+	BUILD_DIR=$(BUILD_DIR) packaging/appimage.sh
 
 clean:
-	rm -f $(BINARY)
-	rm -rf build
+	rm -f $(BINARY) Prism-*.AppImage
+	rm -rf $(BUILD_DIR)

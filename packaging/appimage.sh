@@ -1,25 +1,32 @@
 #!/bin/sh
 # Builds Prism and packs it, with the Qt libraries it needs, into an
 # AppImage: one file that runs on most Linux systems without installing
-# anything. The result is build/Prism-<version>-x86_64.AppImage.
+# anything. The result is Prism-<version>-x86_64.AppImage, in the root of the
+# project; everything else is made in a folder of the temporary folder,
+# BUILD_DIR, which is $TMPDIR/prism-build (or /tmp/prism-build) unless set.
 #
 # It is meant to be run on an old distribution (the GitHub workflow uses
 # Ubuntu 22.04, with Qt's own build of Qt), as an AppImage runs on systems as
 # new as the one it was built on or newer, not on older ones. It needs Go, a
-# C++ compiler, pkg-config, the Qt 6 development files with qmake, curl and
-# file. The Qt that pkg-config finds is the one built with, and QMAKE, if
-# set, says which qmake belongs to it.
+# C++ compiler, pkg-config, the Qt 6 development files (6.12 or newer, as
+# the bindings are made from it) with qmake, curl and file. The Qt that
+# pkg-config finds is the one built with, and QMAKE, if set, says which qmake
+# belongs to it.
 set -eu
 
 cd "$(dirname "$0")/.."
 
 VERSION="${VERSION:-$(git describe --tags --always 2>/dev/null || echo dev)}"
 ARCH=x86_64
-BUILD=build
-APPDIR="$BUILD/AppDir"
-TOOLS="$BUILD/tools"
+BUILD="${BUILD_DIR:-${TMPDIR:-/tmp}/prism-build}"
 OUTPUT="Prism-$VERSION-$ARCH.AppImage"
 
+mkdir -p "$BUILD"
+# The tools are run from the build folder as well as from here, so it is
+# named in full.
+BUILD="$(cd "$BUILD" && pwd)"
+APPDIR="$BUILD/AppDir"
+TOOLS="$BUILD/tools"
 rm -rf "$APPDIR"
 mkdir -p "$TOOLS"
 
@@ -60,7 +67,7 @@ export QMAKE="${QMAKE:-$(command -v qmake6 || command -v qmake)}"
 # GitHub workflow uses, has no others.
 PLUGINS="$("$QMAKE" -query QT_INSTALL_PLUGINS)"
 if [ -n "$(find "$PLUGINS" -mindepth 2 -maxdepth 2 -name '*.so' ! -name 'lib*' | head -n 1)" ]; then
-	STAGE="$PWD/$BUILD/qt-plugins"
+	STAGE="$BUILD/qt-plugins"
 	rm -rf "$STAGE"
 	for dir in "$PLUGINS"/*/; do
 		name="$(basename "$dir")"
@@ -71,7 +78,7 @@ if [ -n "$(find "$PLUGINS" -mindepth 2 -maxdepth 2 -name '*.so' ! -name 'lib*' |
 	done
 
 	REAL_QMAKE="$QMAKE"
-	QMAKE="$PWD/$TOOLS/qmake"
+	QMAKE="$TOOLS/qmake"
 	cat > "$QMAKE" <<WRAPPER
 #!/bin/sh
 "$REAL_QMAKE" "\$@" | sed "s|$PLUGINS|$STAGE|"
@@ -145,8 +152,9 @@ if [ "$missing" -ne 0 ]; then
 	exit 1
 fi
 
-"$TOOLS/linuxdeploy-$ARCH.AppImage" --appdir "$APPDIR" --output appimage
-mv "$OUTPUT" "$BUILD/$OUTPUT"
+# The tool writes the AppImage in the folder it runs in, which is the build
+# folder, and it is moved into the root of the project once it is checked.
+(cd "$BUILD" && "$TOOLS/linuxdeploy-$ARCH.AppImage" --appdir "$APPDIR" --output appimage)
 
 # It is started without a display, with its settings and data in a scratch
 # folder, and has to still be running when it is stopped a few seconds
@@ -162,4 +170,5 @@ if [ "$status" -ne 124 ]; then
 	exit 1
 fi
 
-echo "Made $BUILD/$OUTPUT"
+mv "$BUILD/$OUTPUT" "$OUTPUT"
+echo "Made $OUTPUT"

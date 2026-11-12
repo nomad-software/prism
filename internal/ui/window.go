@@ -11,7 +11,9 @@ import (
 	"slices"
 	"time"
 
-	qt "github.com/mappu/miqt/qt6"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
+	"github.com/nomad-software/qute/qtwidgets"
 
 	"github.com/nomad-software/prism/internal/appicon"
 	"github.com/nomad-software/prism/internal/chart"
@@ -23,7 +25,7 @@ import (
 
 // Window is the program's main window.
 type Window struct {
-	*qt.QMainWindow
+	qtwidgets.QMainWindowBase
 	// path is where the settings are saved.
 	path   string
 	config settings.Settings
@@ -31,11 +33,11 @@ type Window struct {
 	// now is the time, which tests set.
 	now func() time.Time
 	// file and help are the File and Help menus.
-	file, help *qt.QMenu
+	file, help *qtwidgets.QMenu
 	// tabs has a tab of the graphs, and one of the processes, and tabKeys
 	// are the shortcuts to each, in order.
-	tabs    *qt.QTabWidget
-	tabKeys []*qt.QShortcut
+	tabs    *tabWidget
+	tabKeys []*qtgui.QShortcut
 
 	cpu struct {
 		section
@@ -70,16 +72,16 @@ type Window struct {
 	processes processes
 	// frames draws the graphs again between readings, as often as their
 	// lines move along by a pixel, so that they move smoothly.
-	frames *qt.QTimer
+	frames *qtcore.QTimer
 }
 
 // section is the part of the window of one statistic: its heading, where
 // what went wrong reading it is said, and the timer it is read by.
 type section struct {
-	*qt.QWidget
-	layout *qt.QVBoxLayout
-	errors *qt.QLabel
-	timer  *qt.QTimer
+	*qtwidgets.QWidget
+	layout *qtwidgets.QVBoxLayout
+	errors *qtwidgets.QLabel
+	timer  *qtcore.QTimer
 }
 
 // adapter is what is kept of a network adapter.
@@ -95,21 +97,20 @@ type adapter struct {
 // statistics from the source. Start shows it.
 func NewWindow(path string, source stats.Source) *Window {
 	w := &Window{
-		QMainWindow: qt.NewQMainWindow2(),
-		path:        path,
-		config:      settings.Load(path),
-		source:      source,
-		now:         time.Now,
+		path:   path,
+		config: settings.Load(path),
+		source: source,
+		now:    time.Now,
 	}
+	qtwidgets.NewQMainWindowWith(w, nil)
 	if w.config.Theme != "" {
 		applyTheme(w.config.Theme)
 	}
 	w.SetWindowTitle("Prism")
 	icon := appIcon()
-	defer icon.Delete()
 	w.SetWindowIcon(icon)
 	// Dialogs take their icon from the application.
-	qt.QGuiApplication_SetWindowIcon(icon)
+	qtgui.QGuiApplicationSetWindowIcon(icon)
 	w.Resize(w.config.Width, w.config.Height)
 	w.makeMenus()
 
@@ -118,14 +119,14 @@ func NewWindow(path string, source stats.Source) *Window {
 	w.makeCPU()
 	w.makeMemory()
 	w.makeNetwork()
-	layout.AddWidget2(w.cpu.QWidget, 1)
-	layout.AddWidget2(w.memory.QWidget, 1)
-	layout.AddWidget2(w.network.QWidget, 1)
+	layout.AddWidgetFull(w.cpu.QWidget, 1, 0)
+	layout.AddWidgetFull(w.memory.QWidget, 1, 0)
+	layout.AddWidgetFull(w.network.QWidget, 1, 0)
 	processes, layout := newTabPage()
 	w.makeProcesses()
 	layout.AddWidget(w.processes.QWidget)
 	w.makeTabs(resources, processes)
-	w.SetCentralWidget(w.tabs.QWidget)
+	w.SetCentralWidget(w.tabs)
 	// A status bar along the bottom, with a handle in its corner to drag
 	// the window bigger or smaller by.
 	w.StatusBar().SetSizeGripEnabled(true)
@@ -134,24 +135,25 @@ func NewWindow(path string, source stats.Source) *Window {
 	w.memory.timer = w.newTimer(w.config.Intervals.Memory, w.sampleMemory)
 	w.network.timer = w.newTimer(w.config.Intervals.Network, w.sampleNetwork)
 	w.processes.timer = w.newTimer(w.config.Intervals.Processes, w.sampleProcesses)
-	w.frames = qt.NewQTimer2(w.QObject)
+	w.frames = qtcore.NewQTimer(w)
 	// A frame is a few milliseconds, which a coarse timer is out by.
-	w.frames.SetTimerType(qt.PreciseTimer)
+	w.frames.SetTimerType(qtcore.PreciseTimer)
 	w.frames.OnTimeout(w.animate)
-
-	w.OnCloseEvent(func(super func(*qt.QCloseEvent), event *qt.QCloseEvent) {
-		w.saveSettings()
-		super(event)
-	})
 	return w
+}
+
+// CloseEvent saves the settings, with the size of the window, as it closes.
+func (w *Window) CloseEvent(event *qtgui.QCloseEvent) {
+	w.saveSettings()
+	w.Super().CloseEvent(event)
 }
 
 // newTabPage returns the page of a tab of the window, and its layout, with the
 // margins every page has.
-func newTabPage() (*qt.QWidget, *qt.QVBoxLayout) {
-	page := qt.NewQWidget2()
-	layout := qt.NewQVBoxLayout(page)
-	layout.SetContentsMargins(32, 12, 32, 32)
+func newTabPage() (*qtwidgets.QWidget, *qtwidgets.QVBoxLayout) {
+	page := qtwidgets.NewQWidget(nil)
+	layout := qtwidgets.NewQVBoxLayout(page)
+	layout.SetContentsMargins(qtcore.QMargins{Left: 32, Top: 12, Right: 32, Bottom: 32})
 	return page, layout
 }
 
@@ -170,11 +172,11 @@ func (w *Window) Start() {
 	w.sampleMemory()
 	w.sampleNetwork()
 	w.sampleProcesses()
-	for _, t := range []*qt.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer} {
-		t.Start2()
+	for _, t := range []*qtcore.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer} {
+		t.Start()
 	}
 	w.frames.SetInterval(w.frameInterval())
-	w.frames.Start2()
+	w.frames.Start()
 }
 
 // Activate shows the window, raised and given the focus, as when the program is
@@ -185,7 +187,7 @@ func (w *Window) Activate(token string) {
 	if token != "" {
 		os.Setenv("XDG_ACTIVATION_TOKEN", token)
 	}
-	w.SetWindowState(w.WindowState() &^ qt.WindowMinimized)
+	w.SetWindowState(w.WindowState() &^ qtcore.WindowMinimized)
 	w.Show()
 	w.Raise()
 	w.ActivateWindow()
@@ -193,8 +195,8 @@ func (w *Window) Activate(token string) {
 
 // newTimer returns a timer, not yet started, that calls read at the interval,
 // in seconds.
-func (w *Window) newTimer(interval float64, read func()) *qt.QTimer {
-	t := qt.NewQTimer2(w.QObject)
+func (w *Window) newTimer(interval float64, read func()) *qtcore.QTimer {
+	t := qtcore.NewQTimer(w)
 	t.SetInterval(timerInterval(interval))
 	t.OnTimeout(read)
 	return t
@@ -246,47 +248,41 @@ func (w *Window) animate() {
 	}
 }
 
-// makeMenus makes the menu bar: a File menu and a Help menu. On macOS the
-// roles of their actions move them into the application's menu.
+// makeMenus makes the menu bar: a File menu and a Help menu.
 func (w *Window) makeMenus() {
-	w.file = w.MenuBar().AddMenuWithTitle("&File")
-	settingsAction := w.file.AddActionWithText("&Settings…")
-	settingsAction.SetMenuRole(qt.QAction__PreferencesRole)
+	w.file = w.MenuBar().AddMenuTitle("&File")
+	settingsAction := w.file.AddActionText("&Settings…")
 	setShortcut(settingsAction, "Ctrl+,")
-	settingsAction.OnTriggered(func() { w.editSettings() })
+	settingsAction.OnTriggered(func(bool) { w.editSettings() })
 	w.file.AddSeparator()
-	quit := w.file.AddActionWithText("&Quit")
+	quit := w.file.AddActionText("&Quit")
 	setShortcut(quit, "Ctrl+Q")
-	quit.SetMenuRole(qt.QAction__QuitRole)
-	quit.OnTriggered(func() { w.Close() })
+	quit.OnTriggered(func(bool) { w.Close() })
 
-	w.help = w.MenuBar().AddMenuWithTitle("&Help")
-	about := w.help.AddActionWithText("&About")
-	about.SetMenuRole(qt.QAction__AboutRole)
+	w.help = w.MenuBar().AddMenuTitle("&Help")
+	about := w.help.AddActionText("&About")
 	setShortcut(about, "Ctrl+I")
-	about.OnTriggered(func() { showAbout(w.QWidget) })
+	about.OnTriggered(func(bool) { showAbout(w) })
 }
 
 // setShortcut gives the action the shortcut.
-func setShortcut(action *qt.QAction, keys string) {
-	shortcut := qt.NewQKeySequence2(keys)
-	defer shortcut.Delete()
-	action.SetShortcut(shortcut)
+func setShortcut(action *qtgui.QAction, keys string) {
+	action.SetShortcut(qtgui.NewQKeySequenceWithKey(keys))
 }
 
 // newSection makes the part of the window with the heading.
 func newSection(title string) section {
-	s := section{QWidget: qt.NewQWidget2()}
-	s.layout = qt.NewQVBoxLayout(s.QWidget)
-	s.layout.SetContentsMargins(0, 0, 0, 0)
+	s := section{QWidget: qtwidgets.NewQWidget(nil)}
+	s.layout = qtwidgets.NewQVBoxLayout(s.QWidget)
+	s.layout.SetContentsMargins(qtcore.QMargins{Left: 0, Top: 0, Right: 0, Bottom: 0})
 	s.layout.SetSpacing(6)
 
-	heading := qt.NewQHBoxLayout2()
-	heading.AddWidget(sectionHeading(title).QWidget)
-	s.errors = qt.NewQLabel2()
+	heading := qtwidgets.NewQHBoxLayout(nil)
+	heading.AddWidget(sectionHeading(title))
+	s.errors = qtwidgets.NewQLabel(nil)
 	s.errors.SetVisible(false)
-	heading.AddWidget2(s.errors.QWidget, 1)
-	s.layout.AddLayout(heading.QLayout)
+	heading.AddWidgetFull(s.errors, 1, 0)
+	s.layout.AddLayout(heading)
 	return s
 }
 
@@ -308,9 +304,9 @@ func (w *Window) makeCPU() {
 	w.cpu.graph = newGraph()
 	w.cpu.legend = newLegend(false)
 	w.cpu.total = newLegend(false)
-	w.cpu.layout.AddWidget2(w.cpu.graph.QWidget, 1)
-	w.cpu.layout.AddWidget(w.cpu.legend.QWidget)
-	w.cpu.layout.AddWidget(w.cpu.total.QWidget)
+	w.cpu.layout.AddWidgetFull(w.cpu.graph, 1, 0)
+	w.cpu.layout.AddWidget(w.cpu.legend)
+	w.cpu.layout.AddWidget(w.cpu.total)
 }
 
 // makeMemory makes the section of memory and swap.
@@ -318,8 +314,8 @@ func (w *Window) makeMemory() {
 	w.memory.section = newSection("Memory and Swap")
 	w.memory.graph = newGraph()
 	w.memory.legend = newLegend(true)
-	w.memory.layout.AddWidget2(w.memory.graph.QWidget, 1)
-	w.memory.layout.AddWidget(w.memory.legend.QWidget)
+	w.memory.layout.AddWidgetFull(w.memory.graph, 1, 0)
+	w.memory.layout.AddWidget(w.memory.legend)
 }
 
 // makeNetwork makes the section of the network adapters: a graph of what
@@ -334,12 +330,12 @@ func (w *Window) makeNetwork() {
 	w.network.sent.title = "Upload"
 	w.network.legend = newLegend(true)
 
-	graphs := qt.NewQHBoxLayout2()
+	graphs := qtwidgets.NewQHBoxLayout(nil)
 	graphs.SetSpacing(16)
-	graphs.AddWidget2(w.network.received.QWidget, 1)
-	graphs.AddWidget2(w.network.sent.QWidget, 1)
-	w.network.layout.AddLayout2(graphs.QLayout, 1)
-	w.network.layout.AddWidget(w.network.legend.QWidget)
+	graphs.AddWidgetFull(w.network.received, 1, 0)
+	graphs.AddWidgetFull(w.network.sent, 1, 0)
+	w.network.layout.AddLayoutFull(graphs, 1)
+	w.network.layout.AddWidget(w.network.legend)
 }
 
 // span returns the time a graph read at the interval, in seconds, spans.
@@ -528,7 +524,11 @@ func (w *Window) sampleNetwork() {
 	for _, a := range w.network.adapters {
 		a.present = false
 	}
-	for name, rate := range w.network.usage.Update(now, counters) {
+	rates := w.network.usage.Update(now, counters)
+	// Adapters seen for the first time together are given colours in the
+	// order of their names, so that which gets which is the same each time.
+	for _, name := range sortedKeys(rates) {
+		rate := rates[name]
 		a := w.network.adapters[name]
 		if a == nil {
 			a = &adapter{}
@@ -610,7 +610,7 @@ func sortedKeys[V any](m map[string]V) []string {
 // editSettings shows the settings, and puts them into effect if they are
 // changed.
 func (w *Window) editSettings() *settingsDialog {
-	return newSettingsDialog(w.QWidget, w.config, len(w.cpu.cores), sortedKeys(w.config.Colours.Network), chart.DefaultMemoryMax(w.memory.last.Total), w.applySettings)
+	return newSettingsDialog(w, w.config, len(w.cpu.cores), sortedKeys(w.config.Colours.Network), chart.DefaultMemoryMax(w.memory.last.Total), w.applySettings)
 }
 
 // applySettings puts the settings into effect, and saves them.
@@ -623,7 +623,7 @@ func (w *Window) applySettings(s settings.Settings) {
 	s.Width, s.Height, s.Maximized = w.config.Width, w.config.Height, w.config.Maximized
 	w.config = s
 	for _, t := range []struct {
-		timer    *qt.QTimer
+		timer    *qtcore.QTimer
 		interval float64
 	}{
 		{w.cpu.timer, s.Intervals.CPU},
@@ -659,10 +659,9 @@ func (w *Window) saveConfig() {
 }
 
 // appIcon returns the icon of the program.
-func appIcon() *qt.QIcon {
-	pixmap := qt.NewQPixmap()
+func appIcon() *qtgui.QIcon {
+	pixmap := qtgui.NewQPixmap()
+	pixmap.LoadFromData(appicon.PNG)
 	// The icon keeps a copy of the picture.
-	defer pixmap.Delete()
-	pixmap.LoadFromDataWithData(appicon.PNG)
-	return qt.NewQIcon2(pixmap)
+	return qtgui.NewQIconWithPixmap(pixmap)
 }

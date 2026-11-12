@@ -2,9 +2,10 @@ package ui
 
 import (
 	"fmt"
-	"runtime"
 
-	qt "github.com/mappu/miqt/qt6"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
+	"github.com/nomad-software/qute/qtwidgets"
 )
 
 // The tabs of the window, in order.
@@ -21,26 +22,33 @@ const (
 	tabPadY = 10
 )
 
+// tabWidget is the tab widget of the window, which is made in Go to be given
+// a tab bar of its own, as only a subclass can.
+type tabWidget struct {
+	qtwidgets.QTabWidgetBase
+}
+
+// tabBar is a tab bar whose tabs are as the style draws them, with more room
+// in them.
+type tabBar struct {
+	qtwidgets.QTabBarBase
+}
+
+// TabSizeHint gives each tab the room the style gives it, and tabPadX and
+// tabPadY more.
+func (b *tabBar) TabSizeHint(index int) qtcore.QSize {
+	size := b.Super().TabSizeHint(index)
+	return qtcore.QSize{Width: size.Width + tabPadX, Height: size.Height + tabPadY}
+}
+
 // makeTabs puts the pages in tabs, each with an icon, and a shortcut to each,
-// Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS). The icons are drawn in the colour of
-// text, and drawn again whenever the palette or style changes, as with the
-// theme.
-func (w *Window) makeTabs(resources, processes *qt.QWidget) {
-	w.tabs = qt.NewQTabWidget2()
-	// The tabs are as the style draws them, with more room in them.
-	bar := qt.NewQTabBar2()
-	// What is returned is copied once it is returned, so the size of each
-	// tab is kept here, where the collector cannot free it before then.
-	sizes := map[int]*qt.QSize{}
-	bar.OnTabSizeHint(func(super func(int) *qt.QSize, index int) *qt.QSize {
-		size := super(index)
-		if sizes[index] == nil {
-			sizes[index] = qt.NewQSize()
-		}
-		sizes[index].SetWidth(size.Width() + tabPadX)
-		sizes[index].SetHeight(size.Height() + tabPadY)
-		return sizes[index]
-	})
+// Ctrl+1 and Ctrl+2. The icons are drawn in the colour of text, and drawn
+// again whenever the palette or style changes, as with the theme.
+func (w *Window) makeTabs(resources, processes *qtwidgets.QWidget) {
+	w.tabs = &tabWidget{}
+	qtwidgets.NewQTabWidgetWith(w.tabs, w)
+	bar := &tabBar{}
+	qtwidgets.NewQTabBarWith(bar, nil)
 	w.tabs.SetTabBar(bar)
 	w.tabs.SetDocumentMode(true)
 	w.tabs.AddTab(resources, "Resources")
@@ -54,19 +62,24 @@ func (w *Window) makeTabs(resources, processes *qt.QWidget) {
 	})
 	w.drawIcons()
 	for i := range tabCount {
-		key := qt.NewQKeySequence2(fmt.Sprintf("Ctrl+%d", i+1))
-		shortcut := qt.NewQShortcut2(key, w.QObject)
-		key.Delete()
+		key := qtgui.NewQKeySequenceWithKey(fmt.Sprintf("Ctrl+%d", i+1))
+		shortcut := qtgui.NewQShortcutWithKeySequence(key, w)
 		shortcut.OnActivated(func() { w.tabs.SetCurrentIndex(i) })
 		w.tabKeys = append(w.tabKeys, shortcut)
 	}
-	w.OnChangeEvent(func(super func(*qt.QEvent), event *qt.QEvent) {
-		super(event)
-		switch event.Type() {
-		case qt.QEvent__PaletteChange, qt.QEvent__ApplicationPaletteChange, qt.QEvent__StyleChange:
-			w.drawIcons()
-		}
-	})
+}
+
+// ChangeEvent draws the icons again when the palette or the style changes,
+// once the tabs have been made: the theme is applied before they are.
+func (w *Window) ChangeEvent(event *qtcore.QEvent) {
+	w.Super().ChangeEvent(event)
+	if w.tabs == nil {
+		return
+	}
+	switch event.Type() {
+	case qtcore.QEventPaletteChange, qtcore.QEventApplicationPaletteChange, qtcore.QEventStyleChange:
+		w.drawIcons()
+	}
 }
 
 // drawIcons gives each tab its icon, in the colour of text: a line graph in
@@ -75,14 +88,10 @@ func (w *Window) makeTabs(resources, processes *qt.QWidget) {
 func (w *Window) drawIcons() {
 	// The application's palette is the theme's at once; when the window
 	// hears of a change, the tabs can still have the palette before it.
-	palette := qt.QGuiApplication_Palette()
-	defer runtime.KeepAlive(palette)
-	text := palette.ColorWithCr(qt.QPalette__WindowText)
-	ratio := w.DevicePixelRatioF()
-	for i, draw := range [tabCount]func(*qt.QPainter){drawResourcesIcon, drawProcessesIcon} {
-		icon := paintedIcon(text, ratio, draw)
-		w.tabs.SetTabIcon(i, icon)
-		icon.Delete()
+	text := qtgui.QGuiApplicationPalette().Color(qtgui.QPaletteWindowText)
+	ratio := w.AsQPaintDevice().DevicePixelRatioF()
+	for i, draw := range [tabCount]func(*qtgui.QPainter){drawResourcesIcon, drawProcessesIcon} {
+		w.tabs.SetTabIcon(i, paintedIcon(text, ratio, draw))
 	}
 	w.processes.view.drawIcons(text, ratio)
 }

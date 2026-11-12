@@ -199,8 +199,7 @@ const fileName = "settings.json"
 
 // configPath returns where the settings file is kept: in a folder for the
 // program in the place the system has for the configuration of programs, which
-// is ~/.config on Linux (or $XDG_CONFIG_HOME) and ~/Library/Application Support
-// on macOS.
+// is ~/.config (or $XDG_CONFIG_HOME).
 func configPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {

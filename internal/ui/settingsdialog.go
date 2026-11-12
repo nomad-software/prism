@@ -3,11 +3,12 @@ package ui
 import (
 	"fmt"
 	"maps"
-	"runtime"
 	"slices"
 	"strings"
 
-	qt "github.com/mappu/miqt/qt6"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
+	"github.com/nomad-software/qute/qtwidgets"
 
 	"github.com/nomad-software/prism/internal/settings"
 )
@@ -17,18 +18,18 @@ import (
 // graph, the units sizes and rates are written in, which network adapters are
 // shown and by what names, the theme, and the colours graphs are drawn in.
 type settingsDialog struct {
-	*qt.QDialog
-	cpuInterval, memoryInterval, networkInterval, processesInterval *qt.QDoubleSpinBox
-	cpuMode, theme, sizeUnits, rateUnits                            *qt.QComboBox
+	*qtwidgets.QDialog
+	cpuInterval, memoryInterval, networkInterval, processesInterval *qtwidgets.QDoubleSpinBox
+	cpuMode, theme, sizeUnits, rateUnits                            *qtwidgets.QComboBox
 	// memoryMax is the top of the memory graph, in GB or GiB, and
 	// defaultMemoryMax what it is unless another is chosen.
-	memoryMax        *qt.QSpinBox
+	memoryMax        *qtwidgets.QSpinBox
 	defaultMemoryMax int
 	// shown lists the network adapters, in the order of names, each ticked
 	// if it is shown, with its alias beside it.
-	shown *qt.QTableWidget
+	shown *qtwidgets.QTableWidget
 	// colourList is the table the swatches are listed in.
-	colourList                *qt.QTableWidget
+	colourList                *qtwidgets.QTableWidget
 	grid, total, memory, swap *swatch
 	cores                     []*swatch
 	// adapters are the swatches of the network adapters, in the order of
@@ -36,8 +37,8 @@ type settingsDialog struct {
 	adapters []*swatch
 	names    []string
 	// resetColours puts the default colours in the dialog.
-	resetColours *qt.QPushButton
-	box          *qt.QDialogButtonBox
+	resetColours *qtwidgets.QPushButton
+	box          *qtwidgets.QDialogButtonBox
 }
 
 // tabMargin is the space between the edge of a tab of the settings dialog
@@ -59,11 +60,11 @@ const colourTableHeight = 300
 // processors there are and of the network adapters named, and the top of the
 // memory graph unless another is chosen, and calls accepted with them if they
 // are.
-func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int, adapters []string, defaultMemoryMax int, accepted func(settings.Settings)) *settingsDialog {
-	d := &settingsDialog{QDialog: qt.NewQDialog(parent), names: adapters, defaultMemoryMax: defaultMemoryMax}
+func newSettingsDialog(parent qtwidgets.QWidgetLike, current settings.Settings, cores int, adapters []string, defaultMemoryMax int, accepted func(settings.Settings)) *settingsDialog {
+	d := &settingsDialog{QDialog: qtwidgets.NewQDialog(parent), names: adapters, defaultMemoryMax: defaultMemoryMax}
 	d.SetWindowTitle("Settings")
 	d.SetMinimumWidth(settingsLeastWidth)
-	tabs := qt.NewQTabWidget2()
+	tabs := qtwidgets.NewQTabWidget(nil)
 
 	tabs.AddTab(plainPage(d.generalTab()), "General")
 	tabs.AddTab(plainPage(d.networkTab()), "Network")
@@ -71,8 +72,8 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 
 	d.show(current)
 
-	d.box = qt.NewQDialogButtonBox5(qt.QDialogButtonBox__Ok|qt.QDialogButtonBox__Cancel|qt.QDialogButtonBox__RestoreDefaults, qt.Horizontal)
-	d.box.Button(qt.QDialogButtonBox__RestoreDefaults).OnClicked(func() {
+	d.box = qtwidgets.NewQDialogButtonBoxWithButtonsOriented(qtwidgets.QDialogButtonBoxOk|qtwidgets.QDialogButtonBoxCancel|qtwidgets.QDialogButtonBoxRestoreDefaults, qtcore.Horizontal, nil)
+	d.box.Button(qtwidgets.QDialogButtonBoxRestoreDefaults).OnClicked(func(bool) {
 		d.show(defaultsFor(current))
 	})
 	d.box.OnRejected(d.Reject)
@@ -81,9 +82,9 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 		accepted(d.chosen(current))
 	})
 
-	layout := qt.NewQVBoxLayout(d.QWidget)
-	layout.AddWidget2(tabs.QWidget, 1)
-	layout.AddWidget(d.box.QWidget)
+	layout := qtwidgets.NewQVBoxLayout(d)
+	layout.AddWidgetFull(tabs, 1, 0)
+	layout.AddWidget(d.box)
 	// It opens as big as its tabs need, which some styles, as Breeze,
 	// space more widely; smaller, their rows are squashed.
 	fitDialog(d.QDialog, settingsWidth)
@@ -94,80 +95,80 @@ func newSettingsDialog(parent *qt.QWidget, current settings.Settings, cores int,
 
 // generalTab makes the tab of how often each statistic is read, how the
 // processors are shown, the top of the memory graph, and the units.
-func (d *settingsDialog) generalTab() *qt.QWidget {
-	general := qt.NewQWidget2()
-	generalForm := qt.NewQFormLayout(general)
-	generalForm.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
+func (d *settingsDialog) generalTab() *qtwidgets.QWidget {
+	general := qtwidgets.NewQWidget(nil)
+	generalForm := qtwidgets.NewQFormLayout(general)
+	generalForm.SetContentsMargins(qtcore.QMargins{Left: tabMargin, Top: tabMargin, Right: tabMargin, Bottom: tabMargin})
 	d.cpuInterval = newIntervalBox()
 	d.memoryInterval = newIntervalBox()
 	d.networkInterval = newIntervalBox()
 	d.processesInterval = newIntervalBox()
-	generalForm.AddRowWithWidget(sectionHeading("Update intervals").QWidget)
-	generalForm.AddRow3("CPU", d.cpuInterval.QWidget)
-	generalForm.AddRow3("Memory and swap", d.memoryInterval.QWidget)
-	generalForm.AddRow3("Network", d.networkInterval.QWidget)
-	generalForm.AddRow3("Processes", d.processesInterval.QWidget)
-	generalForm.AddRowWithWidget(note("How often each is read, from a tenth of a second to an hour. " +
-		"A graph spans a minute, or two intervals where they are longer.").QWidget)
-	generalForm.AddRowWithWidget(laterHeading("Display").QWidget)
-	d.cpuMode = qt.NewQComboBox2()
+	generalForm.AddRowWidget(sectionHeading("Update intervals"))
+	generalForm.AddRowText("CPU", d.cpuInterval)
+	generalForm.AddRowText("Memory and swap", d.memoryInterval)
+	generalForm.AddRowText("Network", d.networkInterval)
+	generalForm.AddRowText("Processes", d.processesInterval)
+	generalForm.AddRowWidget(note("How often each is read, from a tenth of a second to an hour. " +
+		"A graph spans a minute, or two intervals where they are longer."))
+	generalForm.AddRowWidget(laterHeading("Display"))
+	d.cpuMode = qtwidgets.NewQComboBox(nil)
 	addItem(d.cpuMode, "A line for each core", settings.CPUCores)
 	addItem(d.cpuMode, "One line for all cores", settings.CPUTotal)
-	generalForm.AddRow3("CPU", d.cpuMode.QWidget)
-	d.memoryMax = qt.NewQSpinBox2()
+	generalForm.AddRowText("CPU", d.cpuMode)
+	d.memoryMax = qtwidgets.NewQSpinBox(nil)
 	d.memoryMax.SetRange(1, settings.MaxMemoryMax)
-	generalForm.AddRow3("Maximum memory", d.memoryMax.QWidget)
-	generalForm.AddRowWithWidget(laterHeading("Units").QWidget)
-	d.sizeUnits = qt.NewQComboBox2()
+	generalForm.AddRowText("Maximum memory", d.memoryMax)
+	generalForm.AddRowWidget(laterHeading("Units"))
+	d.sizeUnits = qtwidgets.NewQComboBox(nil)
 	addItem(d.sizeUnits, "Binary (KiB, MiB, GiB)", settings.SizeBinary)
 	addItem(d.sizeUnits, "Decimal (kB, MB, GB)", settings.SizeDecimal)
-	generalForm.AddRow3("Sizes", d.sizeUnits.QWidget)
+	generalForm.AddRowText("Sizes", d.sizeUnits)
 	d.sizeUnits.OnCurrentIndexChanged(func(int) { d.showMemoryUnit() })
-	d.rateUnits = qt.NewQComboBox2()
+	d.rateUnits = qtwidgets.NewQComboBox(nil)
 	addItem(d.rateUnits, "Bytes per second (MiB/s, MB/s)", settings.RateBytes)
 	addItem(d.rateUnits, "Bits per second (Mib/s, Mb/s)", settings.RateBits)
-	generalForm.AddRow3("Network speed", d.rateUnits.QWidget)
+	generalForm.AddRowText("Network speed", d.rateUnits)
 	return general
 }
 
 // networkTab makes the tab of the network adapters.
-func (d *settingsDialog) networkTab() *qt.QWidget {
-	network := qt.NewQWidget2()
-	networkLayout := qt.NewQVBoxLayout(network)
-	networkLayout.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
-	networkLayout.AddWidget(sectionHeading("Adapters").QWidget)
+func (d *settingsDialog) networkTab() *qtwidgets.QWidget {
+	network := qtwidgets.NewQWidget(nil)
+	networkLayout := qtwidgets.NewQVBoxLayout(network)
+	networkLayout.SetContentsMargins(qtcore.QMargins{Left: tabMargin, Top: tabMargin, Right: tabMargin, Bottom: tabMargin})
+	networkLayout.AddWidget(sectionHeading("Adapters"))
 	networkLayout.AddWidget(note("Those ticked are shown in the network graphs and legend, by their alias where they have one. " +
-		"Every adapter that has been seen is listed, and keeps its choices for when it is seen again.").QWidget)
+		"Every adapter that has been seen is listed, and keeps its choices for when it is seen again."))
 	d.shown = d.adapterTable()
-	networkLayout.AddWidget2(d.shown.QWidget, 1)
+	networkLayout.AddWidgetFull(d.shown, 1, 0)
 	return network
 }
 
 // interfaceTab makes the tab of the theme and the colours, whose defaults are
 // worked out from the settings current.
-func (d *settingsDialog) interfaceTab(current settings.Settings, cores int) *qt.QWidget {
-	ui := qt.NewQWidget2()
-	coloursLayout := qt.NewQVBoxLayout(ui)
-	coloursLayout.SetContentsMargins(tabMargin, tabMargin, tabMargin, tabMargin)
-	coloursLayout.AddWidget(sectionHeading("Appearance").QWidget)
-	themeForm := qt.NewQFormLayout2()
-	d.theme = qt.NewQComboBox2()
+func (d *settingsDialog) interfaceTab(current settings.Settings, cores int) *qtwidgets.QWidget {
+	ui := qtwidgets.NewQWidget(nil)
+	coloursLayout := qtwidgets.NewQVBoxLayout(ui)
+	coloursLayout.SetContentsMargins(qtcore.QMargins{Left: tabMargin, Top: tabMargin, Right: tabMargin, Bottom: tabMargin})
+	coloursLayout.AddWidget(sectionHeading("Appearance"))
+	themeForm := qtwidgets.NewQFormLayout(nil)
+	d.theme = qtwidgets.NewQComboBox(nil)
 	for _, t := range themes {
 		addItem(d.theme, t.label, t.name)
 	}
-	themeForm.AddRow3("Theme", d.theme.QWidget)
-	coloursLayout.AddLayout(themeForm.QLayout)
-	coloursLayout.AddWidget(laterHeading("Colours").QWidget)
+	themeForm.AddRowText("Theme", d.theme)
+	coloursLayout.AddLayout(themeForm)
+	coloursLayout.AddWidget(laterHeading("Colours"))
 	// The table has what height the tab has left, and scrolls.
 	d.colourList = d.colourTable(cores)
 	d.colourList.SetMinimumHeight(colourTableHeight)
-	coloursLayout.AddWidget2(d.colourList.QWidget, 1)
-	d.resetColours = qt.NewQPushButton3("Use Default Colours")
-	d.resetColours.OnClicked(func() { d.showColours(defaultsFor(current).Colours) })
-	resetRow := qt.NewQHBoxLayout2()
+	coloursLayout.AddWidgetFull(d.colourList, 1, 0)
+	d.resetColours = qtwidgets.NewQPushButtonWithText("Use Default Colours", nil)
+	d.resetColours.OnClicked(func(bool) { d.showColours(defaultsFor(current).Colours) })
+	resetRow := qtwidgets.NewQHBoxLayout(nil)
 	resetRow.AddStretch()
-	resetRow.AddWidget(d.resetColours.QWidget)
-	coloursLayout.AddLayout(resetRow.QLayout)
+	resetRow.AddWidget(d.resetColours)
+	coloursLayout.AddLayout(resetRow)
 	return ui
 }
 
@@ -179,22 +180,22 @@ const (
 
 // adapterTable lists the network adapters in a table: a row for each, with
 // its name, ticked if it is shown, and its alias, which can be edited.
-func (d *settingsDialog) adapterTable() *qt.QTableWidget {
-	table := qt.NewQTableWidget3(0, 2)
+func (d *settingsDialog) adapterTable() *qtwidgets.QTableWidget {
+	table := qtwidgets.NewQTableWidgetWithRows(0, 2, nil)
 	table.SetHorizontalHeaderLabels([]string{"Adapter", "Alias"})
 	table.VerticalHeader().SetVisible(false)
-	table.SetSelectionMode(qt.QAbstractItemView__SingleSelection)
-	table.SetHorizontalScrollBarPolicy(qt.ScrollBarAlwaysOff)
+	table.SetSelectionMode(qtwidgets.QAbstractItemViewSingleSelection)
+	table.SetHorizontalScrollBarPolicy(qtcore.ScrollBarAlwaysOff)
 	header := table.HorizontalHeader()
-	header.SetSectionResizeMode2(colAdapterName, qt.QHeaderView__ResizeToContents)
-	header.SetSectionResizeMode2(colAdapterAlias, qt.QHeaderView__Stretch)
+	header.SetSectionResizeMode(colAdapterName, qtwidgets.QHeaderViewResizeToContents)
+	header.SetSectionResizeMode(colAdapterAlias, qtwidgets.QHeaderViewStretch)
 	for row, name := range d.names {
 		table.InsertRow(row)
-		item := qt.NewQTableWidgetItem2(name)
-		item.SetFlags(qt.ItemIsEnabled | qt.ItemIsUserCheckable)
+		item := qtwidgets.NewQTableWidgetItemWithText(name)
+		item.SetFlags(qtcore.ItemIsEnabled | qtcore.ItemIsUserCheckable)
 		table.SetItem(row, colAdapterName, item)
-		alias := qt.NewQTableWidgetItem2("")
-		alias.SetFlags(qt.ItemIsEnabled | qt.ItemIsSelectable | qt.ItemIsEditable)
+		alias := qtwidgets.NewQTableWidgetItemWithText("")
+		alias.SetFlags(qtcore.ItemIsEnabled | qtcore.ItemIsSelectable | qtcore.ItemIsEditable)
 		table.SetItem(row, colAdapterAlias, alias)
 	}
 	return table
@@ -208,26 +209,26 @@ const (
 
 // colourTable lists every colour in a table, which scrolls: a row for each,
 // with its name and its swatch, under a heading row for each section.
-func (d *settingsDialog) colourTable(cores int) *qt.QTableWidget {
-	table := qt.NewQTableWidget3(0, 2)
+func (d *settingsDialog) colourTable(cores int) *qtwidgets.QTableWidget {
+	table := qtwidgets.NewQTableWidgetWithRows(0, 2, nil)
 	table.SetHorizontalHeaderLabels([]string{"Name", "Colour"})
 	table.VerticalHeader().SetVisible(false)
-	table.VerticalHeader().SetSectionResizeMode(qt.QHeaderView__ResizeToContents)
-	table.SetSelectionMode(qt.QAbstractItemView__NoSelection)
-	table.SetEditTriggers(qt.QAbstractItemView__NoEditTriggers)
-	table.SetFocusPolicy(qt.NoFocus)
-	table.SetVerticalScrollBarPolicy(qt.ScrollBarAsNeeded)
-	table.SetHorizontalScrollBarPolicy(qt.ScrollBarAlwaysOff)
+	table.VerticalHeader().SetSectionResizeModeAll(qtwidgets.QHeaderViewResizeToContents)
+	table.SetSelectionMode(qtwidgets.QAbstractItemViewNoSelection)
+	table.SetEditTriggers(qtwidgets.QAbstractItemViewNoEditTriggers)
+	table.SetFocusPolicy(qtcore.NoFocus)
+	table.SetVerticalScrollBarPolicy(qtcore.ScrollBarAsNeeded)
+	table.SetHorizontalScrollBarPolicy(qtcore.ScrollBarAlwaysOff)
 	header := table.HorizontalHeader()
-	header.SetSectionResizeMode2(colColourName, qt.QHeaderView__Stretch)
-	header.SetSectionResizeMode2(colColourSwatch, qt.QHeaderView__ResizeToContents)
+	header.SetSectionResizeMode(colColourName, qtwidgets.QHeaderViewStretch)
+	header.SetSectionResizeMode(colColourSwatch, qtwidgets.QHeaderViewResizeToContents)
 
 	heading := func(title string) {
 		// A heading is as wide as the table.
-		item := qt.NewQTableWidgetItem2(title)
-		item.SetFlags(qt.ItemIsEnabled)
+		item := qtwidgets.NewQTableWidgetItemWithText(title)
+		item.SetFlags(qtcore.ItemIsEnabled)
 		font := item.Font()
-		defer runtime.KeepAlive(font)
+		defer font.Delete()
 		font.SetBold(true)
 		item.SetFont(font)
 		row := table.RowCount()
@@ -236,14 +237,14 @@ func (d *settingsDialog) colourTable(cores int) *qt.QTableWidget {
 		table.SetSpan(row, colColourName, 1, 2)
 	}
 	add := func(name string) *swatch {
-		s := newSwatch(d.QWidget, name)
-		item := qt.NewQTableWidgetItem2(name)
-		item.SetFlags(qt.ItemIsEnabled)
+		s := newSwatch(d, name)
+		item := qtwidgets.NewQTableWidgetItemWithText(name)
+		item.SetFlags(qtcore.ItemIsEnabled)
 		// The swatch stands a little clear of the lines of its cell.
-		cell := qt.NewQWidget2()
-		layout := qt.NewQHBoxLayout(cell)
-		layout.SetContentsMargins(6, 3, 6, 3)
-		layout.AddWidget(s.QWidget)
+		cell := qtwidgets.NewQWidget(nil)
+		layout := qtwidgets.NewQHBoxLayout(cell)
+		layout.SetContentsMargins(qtcore.QMargins{Left: 6, Top: 3, Right: 6, Bottom: 3})
+		layout.AddWidget(s)
 		row := table.RowCount()
 		table.InsertRow(row)
 		table.SetItem(row, colColourName, item)
@@ -296,9 +297,9 @@ func (d *settingsDialog) show(s settings.Settings) {
 	}
 	selectData(d.rateUnits, s.RateUnits)
 	for i, name := range d.names {
-		state := qt.Checked
+		state := qtcore.Checked
 		if !s.Shown(name) {
-			state = qt.Unchecked
+			state = qtcore.Unchecked
 		}
 		d.shown.Item(i, colAdapterName).SetCheckState(state)
 		d.shown.Item(i, colAdapterAlias).SetText(s.AdapterAliases[name])
@@ -358,7 +359,7 @@ func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 		}
 	}
 	for i, name := range d.names {
-		if d.shown.Item(i, colAdapterName).CheckState() != qt.Checked {
+		if d.shown.Item(i, colAdapterName).CheckState() != qtcore.Checked {
 			s.HiddenAdapters = append(s.HiddenAdapters, name)
 		}
 	}
@@ -410,9 +411,10 @@ func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 }
 
 // sectionHeading returns the heading of a section of a tab.
-func sectionHeading(title string) *qt.QLabel {
-	label := qt.NewQLabel3(title)
-	font := qt.NewQFont5(label.Font())
+func sectionHeading(title string) *qtwidgets.QLabel {
+	label := qtwidgets.NewQLabelWithText(title, nil)
+	// The font is a copy of the label's.
+	font := label.Font()
 	defer font.Delete()
 	font.SetBold(true)
 	label.SetFont(font)
@@ -421,15 +423,15 @@ func sectionHeading(title string) *qt.QLabel {
 
 // laterHeading returns the heading of a section of a tab that follows another,
 // with room above it.
-func laterHeading(title string) *qt.QLabel {
+func laterHeading(title string) *qtwidgets.QLabel {
 	label := sectionHeading(title)
-	label.SetContentsMargins(0, 12, 0, 0)
+	label.SetContentsMargins(qtcore.QMargins{Left: 0, Top: 12, Right: 0, Bottom: 0})
 	return label
 }
 
 // note returns a note on what a section of a tab is for, which wraps.
-func note(text string) *qt.QLabel {
-	label := qt.NewQLabel3(text)
+func note(text string) *qtwidgets.QLabel {
+	label := qtwidgets.NewQLabelWithText(text, nil)
 	label.SetWordWrap(true)
 	label.SetEnabled(false)
 	return label
@@ -438,16 +440,16 @@ func note(text string) *qt.QLabel {
 // plainPage gives the page of a tab widget the background of the window:
 // some styles draw the pages of a tab widget lighter than
 // the window, which in a dark theme is a slab of grey. The page is returned.
-func plainPage(page *qt.QWidget) *qt.QWidget {
-	page.SetBackgroundRole(qt.QPalette__Window)
+func plainPage(page *qtwidgets.QWidget) *qtwidgets.QWidget {
+	page.SetBackgroundRole(qtgui.QPaletteWindow)
 	page.SetAutoFillBackground(true)
 	return page
 }
 
 // newIntervalBox returns a box for an interval, in seconds to a tenth of a
 // second, which its arrows change by half a second.
-func newIntervalBox() *qt.QDoubleSpinBox {
-	b := qt.NewQDoubleSpinBox2()
+func newIntervalBox() *qtwidgets.QDoubleSpinBox {
+	b := qtwidgets.NewQDoubleSpinBox(nil)
 	b.SetDecimals(1)
 	b.SetSingleStep(0.5)
 	b.SetRange(settings.MinInterval, settings.MaxInterval)
@@ -457,27 +459,27 @@ func newIntervalBox() *qt.QDoubleSpinBox {
 }
 
 // addItem adds an item to the box, with the data it stands for.
-func addItem(box *qt.QComboBox, label, data string) {
-	v := qt.NewQVariant11(data)
-	box.AddItem3(label, v)
+func addItem(box *qtwidgets.QComboBox, label, data string) {
+	v := qtcore.NewQVariantOf(data)
+	box.AddItemFull(label, v)
 	v.Delete()
 }
 
 // selectData makes the item of the box with the data the current one.
-func selectData(box *qt.QComboBox, data string) {
+func selectData(box *qtwidgets.QComboBox, data string) {
 	for i := range box.Count() {
 		v := box.ItemData(i)
 		if v.ToString() == data {
 			box.SetCurrentIndex(i)
 		}
-		runtime.KeepAlive(v)
+		v.Delete()
 	}
 }
 
 // currentData returns the data of the current item of the box.
-func currentData(box *qt.QComboBox) string {
+func currentData(box *qtwidgets.QComboBox) string {
 	v := box.CurrentData()
-	defer runtime.KeepAlive(v)
+	defer v.Delete()
 	return v.ToString()
 }
 
@@ -487,17 +489,17 @@ const swatchButtonWidth = 140
 // swatch is a button filled with a colour, and named with it, which chooses
 // another when it is clicked.
 type swatch struct {
-	*qt.QPushButton
+	*qtwidgets.QPushButton
 	// colour is the colour, as the settings write it.
 	colour string
 }
 
 // newSwatch returns a swatch that chooses the colour of what is named, in a
 // dialog over the parent.
-func newSwatch(parent *qt.QWidget, name string) *swatch {
-	s := &swatch{QPushButton: qt.NewQPushButton2()}
+func newSwatch(parent qtwidgets.QWidgetLike, name string) *swatch {
+	s := &swatch{QPushButton: qtwidgets.NewQPushButton(nil)}
 	s.SetFixedWidth(swatchButtonWidth)
-	s.OnClicked(func() {
+	s.OnClicked(func(bool) {
 		if colour, ok := pickColour(parent, name, s.colour); ok {
 			s.set(colour)
 		}
@@ -509,12 +511,8 @@ func newSwatch(parent *qt.QWidget, name string) *swatch {
 // colour, in a dialog over the parent, and returns the colour chosen, as the
 // settings write it, and false if none is. Tests replace it, as the dialog
 // waits for someone to choose.
-var pickColour = func(parent *qt.QWidget, name, colour string) (string, bool) {
-	initial := qt.NewQColor6(colour)
-	defer initial.Delete()
-	// The colour chosen is freed by the garbage collector.
-	chosen := qt.QColorDialog_GetColor4(initial, parent, "Colour of "+name, qt.QColorDialog__ShowAlphaChannel)
-	defer runtime.KeepAlive(chosen)
+var pickColour = func(parent qtwidgets.QWidgetLike, name, colour string) (string, bool) {
+	chosen := qtwidgets.QColorDialogGetColorFull(parseColour(colour), parent, "Colour of "+name, qtwidgets.QColorDialogShowAlphaChannel)
 	if !chosen.IsValid() {
 		return "", false
 	}
@@ -525,28 +523,10 @@ var pickColour = func(parent *qt.QWidget, name, colour string) (string, bool) {
 // it on it, in black or white, whichever can be read against it.
 func (s *swatch) set(colour string) {
 	s.colour = colour
-	c := qt.NewQColor6(colour)
-	defer c.Delete()
+	c := parseColour(colour)
 	s.SetText(colour)
 	s.SetStyleSheet(fmt.Sprintf(
 		"QPushButton { background-color: rgba(%d, %d, %d, %d); color: %s; border: 1px solid #888888; border-radius: 4px; padding: 5px 0; }",
-		c.Red(), c.Green(), c.Blue(), c.Alpha(), readableOn(c),
+		c.R, c.G, c.B, c.A, readableOn(c),
 	))
-}
-
-// readableOn returns black or white, whichever can be read on the colour.
-func readableOn(colour *qt.QColor) string {
-	if colour.Lightness() > 140 {
-		return "#000000"
-	}
-	return "#ffffff"
-}
-
-// colourName writes a colour as the settings do: #rrggbb where it is opaque,
-// and #aarrggbb where it is not.
-func colourName(c *qt.QColor) string {
-	if c.Alpha() == 255 {
-		return strings.ToLower(c.NameWithFormat(qt.QColor__HexRgb))
-	}
-	return strings.ToLower(c.NameWithFormat(qt.QColor__HexArgb))
 }

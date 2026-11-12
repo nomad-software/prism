@@ -1,3 +1,4 @@
-# The binary make build makes.
+# The binary make build makes, and the AppImage make appimage makes. Both are
+# built in a folder of the temporary folder and only the result is put here.
 /prism
-/build
+/*.AppImage

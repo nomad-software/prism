@@ -1,12 +1,12 @@
 package ui
 
 import (
-	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
 
-	qt "github.com/mappu/miqt/qt6"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtwidgets"
 )
 
 // aboutWidth is the narrowest the about box is, so that the notices of the
@@ -55,31 +55,32 @@ func aboutText() string {
 // newAboutTitle returns the name of the program with its version to the
 // right of it, smaller and half transparent, on one baseline, and the label
 // of the version.
-func newAboutTitle() (*qt.QHBoxLayout, *qt.QLabel) {
-	name := qt.NewQLabel3("Prism")
-	large := qt.NewQFont5(name.Font())
+func newAboutTitle() (*qtwidgets.QHBoxLayout, *qtwidgets.QLabel) {
+	name := qtwidgets.NewQLabelWithText("Prism", nil)
+	// The fonts are copies of the labels'.
+	large := name.Font()
 	defer large.Delete()
 	large.SetBold(true)
 	large.SetPointSizeF(large.PointSizeF() * 1.5)
 	name.SetFont(large)
 
-	version := qt.NewQLabel3(appVersion())
-	version.SetTextFormat(qt.PlainText)
-	small := qt.NewQFont5(version.Font())
+	version := qtwidgets.NewQLabelWithText(appVersion(), nil)
+	version.SetTextFormat(qtcore.PlainText)
+	small := version.Font()
 	defer small.Delete()
 	small.SetPointSizeF(small.PointSizeF() * 0.8)
 	version.SetFont(small)
 	nameMetrics, versionMetrics := name.FontMetrics(), version.FontMetrics()
-	defer runtime.KeepAlive(nameMetrics)
-	defer runtime.KeepAlive(versionMetrics)
-	version.SetContentsMargins(0, 0, 0, nameMetrics.Descent()-versionMetrics.Descent())
-	faded := qt.NewQGraphicsOpacityEffect()
+	defer nameMetrics.Delete()
+	defer versionMetrics.Delete()
+	version.SetContentsMargins(qtcore.QMargins{Bottom: nameMetrics.Descent() - versionMetrics.Descent()})
+	faded := qtwidgets.NewQGraphicsOpacityEffect(nil)
 	faded.SetOpacity(0.5)
-	version.SetGraphicsEffect(faded.QGraphicsEffect)
+	version.SetGraphicsEffect(faded)
 
-	title := qt.NewQHBoxLayout2()
-	title.AddWidget3(name.QWidget, 0, qt.AlignBottom)
-	title.AddWidget3(version.QWidget, 0, qt.AlignBottom)
+	title := qtwidgets.NewQHBoxLayout(nil)
+	title.AddWidgetFull(name, 0, qtcore.AlignBottom)
+	title.AddWidgetFull(version, 0, qtcore.AlignBottom)
 	title.AddStretch()
 	return title, version
 }
@@ -98,8 +99,8 @@ func licenceText() string {
 		"licensing.</p>" +
 		"<p>Copyright (C) The Qt Company Ltd. and other contributors. Qt and the Qt logo are " +
 		"trademarks of The Qt Company Ltd.</p>" +
-		"<p>The Go bindings for Qt are provided by <a href=\"https://github.com/mappu/miqt\">miqt</a>, " +
-		"used under the MIT licence.</p>" +
+		"<p>The Go bindings for Qt are provided by <a href=\"https://github.com/nomad-software/qute\">qute</a>, " +
+		"used under the GPLv3.</p>" +
 		"<p>The default colours are those of <a href=\"https://ethanschoonover.com/solarized/\">Solarized</a> " +
 		"by Ethan Schoonover, used under the MIT licence.</p>"
 }
@@ -108,61 +109,57 @@ func licenceText() string {
 // the notices of the licences beneath in a frame of the style's own, in the
 // colours of the theme.
 type aboutDialog struct {
-	*qt.QDialog
+	*qtwidgets.QDialog
 	// version is the label of the version of the program.
-	version *qt.QLabel
+	version *qtwidgets.QLabel
 }
 
-func newAboutDialog(parent *qt.QWidget) *aboutDialog {
-	d := &aboutDialog{QDialog: qt.NewQDialog(parent)}
+func newAboutDialog(parent qtwidgets.QWidgetLike) *aboutDialog {
+	d := &aboutDialog{QDialog: qtwidgets.NewQDialog(parent)}
 	d.SetWindowTitle("About Prism")
 	d.SetMinimumWidth(aboutWidth)
 
-	ic := qt.NewQLabel2()
-	icon := appIcon()
-	defer icon.Delete()
-	pixmap := icon.PixmapWithExtent(aboutIconSize)
-	ic.SetPixmap(pixmap)
-	runtime.KeepAlive(pixmap)
-	ic.SetAlignment(qt.AlignTop)
+	ic := qtwidgets.NewQLabel(nil)
+	ic.SetPixmap(appIcon().Pixmap(qtcore.QSize{Width: aboutIconSize, Height: aboutIconSize}))
+	ic.SetAlignment(qtcore.AlignTop)
 
 	title, version := newAboutTitle()
 	d.version = version
 
-	about := qt.NewQVBoxLayout2()
+	about := qtwidgets.NewQVBoxLayout(nil)
 	about.SetSpacing(12)
-	about.AddLayout(title.QLayout)
-	about.AddWidget(newRichLabel(aboutText()).QWidget)
+	about.AddLayout(title)
+	about.AddWidget(newRichLabel(aboutText()))
 	about.AddStretch()
 
-	top := qt.NewQHBoxLayout2()
+	top := qtwidgets.NewQHBoxLayout(nil)
 	top.SetSpacing(20)
-	top.AddWidget(ic.QWidget)
-	top.AddLayout2(about.QLayout, 1)
+	top.AddWidget(ic)
+	top.AddLayoutFull(about, 1)
 
 	// The notices are smaller than the rest, as on a label of the style.
 	licences := newRichLabel(licenceText())
-	font := qt.NewQFont5(licences.Font())
+	font := licences.Font()
 	defer font.Delete()
 	font.SetPointSizeF(font.PointSizeF() * 0.9)
 	licences.SetFont(font)
 
-	notices := qt.NewQFrame2()
-	notices.SetFrameShape(qt.QFrame__StyledPanel)
-	notices.SetFrameShadow(qt.QFrame__Sunken)
-	frameLayout := qt.NewQVBoxLayout(notices.QWidget)
-	frameLayout.SetContentsMargins(12, 8, 12, 8)
-	frameLayout.AddWidget(licences.QWidget)
+	notices := qtwidgets.NewQFrame(nil)
+	notices.SetFrameShape(qtwidgets.QFrameStyledPanel)
+	notices.SetFrameShadow(qtwidgets.QFrameSunken)
+	frameLayout := qtwidgets.NewQVBoxLayout(notices)
+	frameLayout.SetContentsMargins(qtcore.QMargins{Left: 12, Top: 8, Right: 12, Bottom: 8})
+	frameLayout.AddWidget(licences)
 
-	buttons := qt.NewQDialogButtonBox4(qt.QDialogButtonBox__Ok)
+	buttons := qtwidgets.NewQDialogButtonBoxWithStandardButton(qtwidgets.QDialogButtonBoxOk, nil)
 	buttons.OnAccepted(d.Accept)
 
-	layout := qt.NewQVBoxLayout(d.QWidget)
-	layout.SetContentsMargins(20, 20, 20, 16)
+	layout := qtwidgets.NewQVBoxLayout(d)
+	layout.SetContentsMargins(qtcore.QMargins{Left: 20, Top: 20, Right: 20, Bottom: 16})
 	layout.SetSpacing(16)
-	layout.AddLayout(top.QLayout)
-	layout.AddWidget(notices.QWidget)
-	layout.AddWidget(buttons.QWidget)
+	layout.AddLayout(top)
+	layout.AddWidget(notices)
+	layout.AddWidget(buttons)
 
 	fitDialog(d.QDialog, aboutWidth)
 	return d
@@ -170,32 +167,30 @@ func newAboutDialog(parent *qt.QWidget) *aboutDialog {
 
 // newRichLabel returns a label of rich text which wraps, and whose links
 // open in the browser.
-func newRichLabel(text string) *qt.QLabel {
-	label := qt.NewQLabel3(text)
-	label.SetTextFormat(qt.RichText)
+func newRichLabel(text string) *qtwidgets.QLabel {
+	label := qtwidgets.NewQLabelWithText(text, nil)
+	label.SetTextFormat(qtcore.RichText)
 	label.SetWordWrap(true)
 	label.SetOpenExternalLinks(true)
-	label.SetTextInteractionFlags(qt.TextBrowserInteraction)
+	label.SetTextInteractionFlags(qtcore.TextBrowserInteraction)
 	return label
 }
 
 // fitDialog makes the dialog at least the width, and as high as its layout
 // needs at that width, as a label that wraps is not given the height it
 // needs by the dialog's size hint alone.
-func fitDialog(d *qt.QDialog, width int) {
+func fitDialog(d *qtwidgets.QDialog, width int) {
 	layout := d.Layout()
 	layout.Activate()
 	least, hint := layout.MinimumSize(), d.SizeHint()
-	width = max(width, least.Width())
-	height := max(layout.HeightForWidth(width), hint.Height(), least.Height())
-	runtime.KeepAlive(least)
-	runtime.KeepAlive(hint)
+	width = max(width, least.Width)
+	height := max(layout.AsQLayoutItem().HeightForWidth(width), hint.Height, least.Height)
 	d.Resize(width, height)
 }
 
 // showAbout shows the about box, without waiting for it, and deletes it once
 // it is closed.
-func showAbout(parent *qt.QWidget) {
+func showAbout(parent qtwidgets.QWidgetLike) {
 	d := newAboutDialog(parent)
 	// A dialog is not destroyed by being closed.
 	d.OnFinished(func(int) { d.DeleteLater() })
@@ -204,7 +199,7 @@ func showAbout(parent *qt.QWidget) {
 
 // qtVersion returns the version of Qt the program runs with.
 func qtVersion() string {
-	v := qt.QLibraryInfo_Version()
-	defer runtime.KeepAlive(v)
+	v := qtcore.QLibraryInfoVersion()
+	defer v.Delete()
 	return v.ToString()
 }

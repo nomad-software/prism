@@ -8,8 +8,11 @@ import (
 	"testing"
 	"time"
 
-	qt "github.com/mappu/miqt/qt6"
-	"github.com/mappu/miqt/qt6/mainthread"
+	"github.com/nomad-software/qute"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
+	"github.com/nomad-software/qute/qtwidgets"
+	"github.com/nomad-software/qute/qutetest"
 
 	"github.com/nomad-software/prism/internal/settings"
 	"github.com/nomad-software/prism/internal/stats"
@@ -24,11 +27,11 @@ func showAll(s *settings.Settings) {
 
 // items returns the items of the tree of processes, each before those under
 // it, from the top, folded or not, with how deep each is.
-func items(tw *testWindow) ([]*qt.QTreeWidgetItem, []int) {
-	var all []*qt.QTreeWidgetItem
+func items(tw *testWindow) ([]*qtwidgets.QTreeWidgetItem, []int) {
+	var all []*qtwidgets.QTreeWidgetItem
 	var depths []int
-	var walk func(item *qt.QTreeWidgetItem, depth int)
-	walk = func(item *qt.QTreeWidgetItem, depth int) {
+	var walk func(item *qtwidgets.QTreeWidgetItem, depth int)
+	walk = func(item *qtwidgets.QTreeWidgetItem, depth int) {
 		all = append(all, item)
 		depths = append(depths, depth)
 		for i := range item.ChildCount() {
@@ -73,15 +76,15 @@ func chosenRow(tw *testWindow) int {
 		return -1
 	}
 	all, _ := items(tw)
-	return slices.IndexFunc(all, func(item *qt.QTreeWidgetItem) bool {
-		return item.UnsafePointer() == selected[0].UnsafePointer()
+	return slices.IndexFunc(all, func(item *qtwidgets.QTreeWidgetItem) bool {
+		return item.Ptr() == selected[0].Ptr()
 	})
 }
 
 func TestTabs(t *testing.T) {
 	tw := newTestWindow(t, showAll)
-	mainthread.Wait(func() {
-		if tw.CentralWidget().UnsafePointer() != tw.tabs.QWidget.UnsafePointer() {
+	qutetest.Run(t, func() {
+		if tw.CentralWidget().Ptr() != tw.tabs.QWidget.Ptr() {
 			t.Fatal("the tabs are not the window's")
 		}
 		var titles []string
@@ -115,11 +118,10 @@ func TestSampleProcesses(t *testing.T) {
 		f.procs = []stats.Process{
 			{PID: 10, Name: "idle", Start: 1, CPU: time.Second, Memory: 1 << 20},
 			{PID: 20, Name: "busy", Start: 1, CPU: 4 * time.Second, Memory: 3 << 30},
-			{PID: 30, Name: "other user's", Start: 1, Restricted: true},
 			{PID: 35, Name: "kworker/0:1", Start: 1, CPU: time.Second, Kernel: true},
 		}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		tw.sampleProcesses()
 		// The heading of how busy they are says how many processors there
@@ -129,16 +131,16 @@ func TestSampleProcesses(t *testing.T) {
 		}
 		// How busy they are is not known from one reading; they are listed
 		// by PID until it is.
-		if got := column(tw, colProcessPID); !slices.Equal(got, []string{"10", "20", "30", "35"}) {
+		if got := column(tw, colProcessPID); !slices.Equal(got, []string{"10", "20", "35"}) {
 			t.Errorf("PIDs = %q", got)
 		}
-		if got := column(tw, colProcessCPU); !slices.Equal(got, []string{"—", "—", "—", "—"}) {
+		if got := column(tw, colProcessCPU); !slices.Equal(got, []string{"—", "—", "—"}) {
 			t.Errorf("CPU = %q", got)
 		}
-		if got := column(tw, colProcessCores); !slices.Equal(got, []string{"—", "—", "—", "—"}) {
+		if got := column(tw, colProcessCores); !slices.Equal(got, []string{"—", "—", "—"}) {
 			t.Errorf("cores = %q", got)
 		}
-		if got := column(tw, colProcessMemory); !slices.Equal(got, []string{"1.0 MiB", "3.0 GiB", "—", "—"}) {
+		if got := column(tw, colProcessMemory); !slices.Equal(got, []string{"1.0 MiB", "3.0 GiB", "—"}) {
 			t.Errorf("memory = %q", got)
 		}
 	})
@@ -148,29 +150,28 @@ func TestSampleProcesses(t *testing.T) {
 		f.procs = []stats.Process{
 			{PID: 10, Name: "idle", Start: 1, CPU: 1100 * time.Millisecond, Memory: 1 << 20},
 			{PID: 20, Name: "busy", Start: 1, CPU: 8 * time.Second, Memory: 3 << 30},
-			{PID: 30, Name: "other user's", Start: 1, Restricted: true},
 			{PID: 40, Name: "new", Start: 1, CPU: time.Second},
 		}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		// The busiest are first, and those not known last.
-		if got := column(tw, colProcessName); !slices.Equal(got, []string{"busy", "idle", "other user's", "new"}) {
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"busy", "idle", "new"}) {
 			t.Errorf("names = %q", got)
 		}
-		if got := column(tw, colProcessCPU); !slices.Equal(got, []string{"200.0%", "5.0%", "—", "—"}) {
+		if got := column(tw, colProcessCPU); !slices.Equal(got, []string{"200.0%", "5.0%", "—"}) {
 			t.Errorf("CPU = %q", got)
 		}
 		// The busy one kept both processors busy, and the idle one a
 		// twentieth of one.
-		if got := column(tw, colProcessCores); !slices.Equal(got, []string{"2.0", "0.1", "—", "—"}) {
+		if got := column(tw, colProcessCores); !slices.Equal(got, []string{"2.0", "0.1", "—"}) {
 			t.Errorf("cores = %q", got)
 		}
 		// The PIDs and names, and their headings, are to the left, and the
 		// rest to the right.
-		for col, want := range map[int]qt.AlignmentFlag{
-			colProcessPID: qt.AlignLeft, colProcessName: qt.AlignLeft,
-			colProcessCPU: qt.AlignRight, colProcessCores: qt.AlignRight, colProcessMemory: qt.AlignRight,
+		for col, want := range map[int]qtcore.AlignmentFlag{
+			colProcessPID: qtcore.AlignLeft, colProcessName: qtcore.AlignLeft,
+			colProcessCPU: qtcore.AlignRight, colProcessCores: qtcore.AlignRight, colProcessMemory: qtcore.AlignRight,
 		} {
 			if a := tw.processes.tree.TopLevelItem(0).TextAlignment(col); a&int(want) == 0 {
 				t.Errorf("column %d is aligned %#x", col, a)
@@ -185,7 +186,7 @@ func TestSampleProcesses(t *testing.T) {
 func TestProcessesError(t *testing.T) {
 	tw := newTestWindow(t, showAll)
 	tw.source.set(func(f *fakeSource) { f.err = errors.New("no /proc") })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		if !tw.processes.errors.IsVisibleTo(tw.processes.QWidget) || !strings.Contains(tw.processes.errors.Text(), "no /proc") {
 			t.Errorf("the error is not said: %q", tw.processes.errors.Text())
@@ -202,19 +203,19 @@ func TestSortProcessesByHeader(t *testing.T) {
 			{PID: 2, Name: "alpha", Memory: 200, CPU: time.Second},
 		}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		header := tw.processes.tree.Header()
 		for _, c := range []struct {
 			col   int
-			order qt.SortOrder
+			order qtcore.SortOrder
 			want  []string
 		}{
-			{colProcessName, qt.AscendingOrder, []string{"alpha", "bravo", "Charlie"}},
-			{colProcessName, qt.DescendingOrder, []string{"Charlie", "bravo", "alpha"}},
-			{colProcessPID, qt.AscendingOrder, []string{"Charlie", "alpha", "bravo"}},
-			{colProcessPID, qt.DescendingOrder, []string{"bravo", "alpha", "Charlie"}},
-			{colProcessMemory, qt.DescendingOrder, []string{"Charlie", "alpha", "bravo"}},
+			{colProcessName, qtcore.AscendingOrder, []string{"alpha", "bravo", "Charlie"}},
+			{colProcessName, qtcore.DescendingOrder, []string{"Charlie", "bravo", "alpha"}},
+			{colProcessPID, qtcore.AscendingOrder, []string{"Charlie", "alpha", "bravo"}},
+			{colProcessPID, qtcore.DescendingOrder, []string{"bravo", "alpha", "Charlie"}},
+			{colProcessMemory, qtcore.DescendingOrder, []string{"Charlie", "alpha", "bravo"}},
 		} {
 			header.SetSortIndicator(c.col, c.order)
 			if got := column(tw, colProcessName); !slices.Equal(got, c.want) {
@@ -258,7 +259,7 @@ func TestSortProcesses(t *testing.T) {
 // many processors there are, once that is known.
 func TestCPUHeading(t *testing.T) {
 	tw := newTestWindow(t, showAll)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		for n, want := range map[int]string{0: "CPU", 1: "CPU (1 core)", 8: "CPU (8 cores)"} {
 			tw.processes.nameProcessors(n)
 			if got := tw.processes.tree.HeaderItem().Text(colProcessCPU); got != want {
@@ -273,7 +274,7 @@ func TestChosenProcessKept(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 1, Name: "a"}, {PID: 2, Name: "b"}, {PID: 3, Name: "c"}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		chooseRow(tw, 2)
 		if tw.processes.chosen == nil || tw.processes.chosen.PID != 3 || !tw.processes.send.IsEnabled() {
@@ -285,7 +286,7 @@ func TestChosenProcessKept(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 3, Name: "c"}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		if tw.processes.chosen == nil || tw.processes.chosen.PID != 3 || chosenRow(tw) != 0 {
 			t.Errorf("chosen = %+v, row %d", tw.processes.chosen, chosenRow(tw))
@@ -296,7 +297,7 @@ func TestChosenProcessKept(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 3, Name: "c", Start: 99}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		if tw.processes.chosen != nil || tw.processes.send.IsEnabled() || len(tw.processes.tree.SelectedItems()) > 0 {
 			t.Errorf("chosen = %+v after it ended", tw.processes.chosen)
@@ -309,7 +310,7 @@ func TestSendSignal(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 42, Name: "victim"}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		chooseRow(tw, 0)
 		tw.processes.send.Click()
@@ -338,17 +339,16 @@ func TestSortProcessesByClick(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 3, Name: "b", Memory: 1}, {PID: 1, Name: "c", Memory: 3}, {PID: 2, Name: "a", Memory: 2}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.tabs.SetCurrentIndex(1)
 		tw.sampleProcesses()
 		header := tw.processes.tree.Header()
 		click := func(col int) {
 			x := float64(header.SectionViewportPosition(col) + header.SectionSize(col)/2)
-			pos := qt.NewQPointF3(x, float64(header.Height()/2))
-			defer pos.Delete()
-			for _, kind := range []qt.QEvent__Type{qt.QEvent__MouseButtonPress, qt.QEvent__MouseButtonRelease} {
-				e := qt.NewQMouseEvent(kind, pos, qt.LeftButton, qt.LeftButton, qt.NoModifier)
-				qt.QCoreApplication_SendEvent(header.Viewport().QObject, e.QEvent)
+			pos := qtcore.QPointF{X: x, Y: float64(header.Height() / 2)}
+			for _, kind := range []qtcore.QEventType{qtcore.QEventMouseButtonPress, qtcore.QEventMouseButtonRelease} {
+				e := qtgui.NewQMouseEvent(kind, pos, pos, qtcore.LeftButton, qtcore.LeftButton, qtcore.NoModifier)
+				qtcore.QCoreApplicationSendEvent(header.Viewport(), e)
 				e.Delete()
 			}
 		}
@@ -379,7 +379,7 @@ func TestProcessColumnWidths(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 1, Name: "init"}, {PID: 4194304, Name: "late"}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.tabs.SetCurrentIndex(1)
 		tw.sampleProcesses()
 		header := tw.processes.tree.Header()
@@ -393,7 +393,7 @@ func TestProcessColumnWidths(t *testing.T) {
 		}
 		for _, width := range []int{900, 1400, 700} {
 			tw.Resize(width, 820)
-			qt.QCoreApplication_ProcessEvents()
+			qute.ProcessEvents()
 			fifth := (header.Width() - pid) / 5
 			want := [processColumns]int{pid, 2 * fifth, fifth, fifth, fifth}
 			sum := 0
@@ -411,7 +411,7 @@ func TestProcessColumnWidths(t *testing.T) {
 	})
 	// The PIDs narrow when the largest has gone.
 	tw.source.set(func(f *fakeSource) { f.procs = []stats.Process{{PID: 1, Name: "init"}} })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		before := tw.processes.tree.Header().SectionSize(colProcessPID)
 		tw.sampleProcesses()
 		if after := tw.processes.tree.Header().SectionSize(colProcessPID); after >= before {
@@ -430,17 +430,17 @@ func TestProcessOrderSetting(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 3, Name: "b", Memory: 1}, {PID: 1, Name: "c", Memory: 3}, {PID: 2, Name: "a", Memory: 2}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleProcesses()
 		header := tw.processes.tree.Header()
-		if header.SortIndicatorSection() != colProcessName || header.SortIndicatorOrder() != qt.DescendingOrder {
+		if header.SortIndicatorSection() != colProcessName || header.SortIndicatorOrder() != qtcore.DescendingOrder {
 			t.Error("the table is not sorted as the settings say")
 		}
 		if got := column(tw, colProcessName); !slices.Equal(got, []string{"c", "b", "a"}) {
 			t.Errorf("names = %q", got)
 		}
 
-		header.SetSortIndicator(colProcessPID, qt.AscendingOrder)
+		header.SetSortIndicator(colProcessPID, qtcore.AscendingOrder)
 		if s := settings.Load(tw.path); s.ProcessSort != settings.SortPID || s.ProcessOrder != settings.OrderAscending {
 			t.Errorf("saved order = %q, %q", s.ProcessSort, s.ProcessOrder)
 		}
@@ -453,7 +453,7 @@ func TestProcessOrderSetting(t *testing.T) {
 
 func TestTabShortcuts(t *testing.T) {
 	tw := newTestWindow(t, showAll)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		if len(tw.tabKeys) != tabCount {
 			t.Fatalf("%d shortcuts, want %d", len(tw.tabKeys), tabCount)
 		}
@@ -462,11 +462,11 @@ func TestTabShortcuts(t *testing.T) {
 				t.Errorf("shortcut %d = %q, want %q", i, got, want)
 			}
 		}
-		tw.tabKeys[tabProcesses].Activated()
+		tw.tabKeys[tabProcesses].EmitActivated()
 		if tw.tabs.CurrentIndex() != tabProcesses {
 			t.Error("Ctrl+2 does not show the processes")
 		}
-		tw.tabKeys[tabResources].Activated()
+		tw.tabKeys[tabResources].EmitActivated()
 		if tw.tabs.CurrentIndex() != tabResources {
 			t.Error("Ctrl+1 does not show the resources")
 		}
@@ -475,26 +475,26 @@ func TestTabShortcuts(t *testing.T) {
 
 // iconLightness returns the lightness of the most opaque pixel of the icon,
 // from 0 to 255, or -1 if it has none.
-func iconLightness(icon *qt.QIcon) int {
-	pixmap := icon.Pixmap2(iconSize, iconSize)
+func iconLightness(icon *qtgui.QIcon) int {
+	pixmap := icon.Pixmap(qtcore.QSize{Width: iconSize, Height: iconSize})
 	img := pixmap.ToImage()
-	best, lightness := 0, -1
+	best, light := 0, -1
 	for y := range img.Height() {
 		for x := range img.Width() {
 			c := img.PixelColor(x, y)
-			if c.Alpha() > best {
-				best, lightness = c.Alpha(), c.Lightness()
+			if int(c.A) > best {
+				best, light = int(c.A), lightness(c)
 			}
 		}
 	}
-	return lightness
+	return light
 }
 
 // TestIconsFollowTheme checks that the icons of the tabs and of the buttons
 // that show the processes as a list or a tree are in the colour of text.
 func TestIconsFollowTheme(t *testing.T) {
 	tw := newTestWindow(t, func(s *settings.Settings) { s.Theme = settings.ThemeDark })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		for tab := range tabCount {
 			if tw.tabs.TabIcon(tab).IsNull() {
 				t.Fatalf("tab %d has no icon", tab)
@@ -512,7 +512,7 @@ func TestIconsFollowTheme(t *testing.T) {
 		s := tw.config
 		s.Theme = settings.ThemeLight
 		tw.applySettings(s)
-		qt.QCoreApplication_ProcessEvents()
+		qute.ProcessEvents()
 		for tab := range tabCount {
 			if l := iconLightness(tw.tabs.TabIcon(tab)); l < 0 || l > 100 {
 				t.Errorf("light theme: tab %d icon lightness %d, want dark", tab, l)
@@ -541,7 +541,7 @@ var treeProcesses = []stats.Process{
 func TestProcessFilterAndView(t *testing.T) {
 	tw := newTestWindow(t, func(s *settings.Settings) { s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending })
 	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		p := &tw.processes
 		tw.sampleProcesses()
 		// Those of people are shown as a list at first.
@@ -565,7 +565,7 @@ func TestProcessFilterAndView(t *testing.T) {
 		// of the same parent in the order chosen.
 		selectData(p.filter, settings.ProcessesAll)
 		p.view.choose(settings.ViewTree)
-		tw.processes.tree.Header().SetSortIndicator(colProcessMemory, qt.DescendingOrder)
+		tw.processes.tree.Header().SetSortIndicator(colProcessMemory, qtcore.DescendingOrder)
 		want := []string{"init", "sshd", "login", "bash", "vim", "kthreadd"}
 		if got := column(tw, colProcessName); !slices.Equal(got, want) {
 			t.Errorf("tree = %q, want %q", got, want)
@@ -593,7 +593,7 @@ func TestProcessFilterAndView(t *testing.T) {
 
 	// They are as they were saved when the window is made again.
 	again := newTestWindow(t, func(s *settings.Settings) { *s = settings.Load(tw.path) })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		if currentData(again.processes.filter) != settings.ProcessesUser || again.processes.view.current() != settings.ViewTree {
 			t.Error("the choices are not as they were saved")
 		}
@@ -604,9 +604,9 @@ func TestProcessFilterAndView(t *testing.T) {
 // are shown, and how, are below the table, at its left.
 func TestProcessChoicesBelowTable(t *testing.T) {
 	tw := newTestWindow(t, showAll)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.tabs.SetCurrentIndex(tabProcesses)
-		qt.QCoreApplication_ProcessEvents()
+		qute.ProcessEvents()
 		p := &tw.processes
 		filter, view := p.filter.Geometry(), p.view.buttons[0].Geometry()
 		table := p.tree.Geometry()
@@ -620,10 +620,10 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 		// Each is labelled, the label just before it.
 		for _, c := range []struct {
 			text string
-			box  *qt.QWidget
-		}{{"Processes", p.filter.QWidget}, {"Show as", p.view.buttons[0].QWidget}} {
+			box  *qtwidgets.QWidget
+		}{{"Processes", p.filter.AsQWidget()}, {"Show as", p.view.buttons[0].AsQWidget()}} {
 			found := false
-			for _, label := range labels(p.QObject) {
+			for _, label := range labels(p.QWidget) {
 				if label.Text() == c.text {
 					g := label.Geometry()
 					found = g.Right() < c.box.Geometry().Left() && c.box.Geometry().Left()-g.Right() < 20 && g.Top() > table.Bottom()
@@ -657,7 +657,7 @@ func TestProcessChoicesBelowTable(t *testing.T) {
 		if p.view.buttons[0].IsChecked() || p.view.current() != settings.ViewTree {
 			t.Error("checking Tree does not uncheck List")
 		}
-		if filter.Left() > table.Left()+table.Width()/4 || view.Left() <= filter.Right() || p.view.buttons[1].Geometry().Right() >= p.signals.Geometry().Left() {
+		if filter.Left() > table.Left()+table.Width/4 || view.Left() <= filter.Right() || p.view.buttons[1].Geometry().Right() >= p.signals.Geometry().Left() {
 			t.Errorf("the choices are not at the left: filter %d-%d, view %d-%d, table from %d",
 				filter.Left(), filter.Right(), view.Left(), view.Right(), table.Left())
 		}
@@ -673,10 +673,10 @@ func TestProcessSearch(t *testing.T) {
 		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
 	})
 	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		p := &tw.processes
 		tw.tabs.SetCurrentIndex(tabProcesses)
-		qt.QCoreApplication_ProcessEvents()
+		qute.ProcessEvents()
 		if p.search.Geometry().Bottom() >= p.tree.Geometry().Top() {
 			t.Error("the search is not above the table")
 		}
@@ -727,21 +727,21 @@ func TestTreeOrderRing(t *testing.T) {
 // them.
 func TestTabPadding(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		bar := tw.tabs.TabBar()
 		// A tab widget as the window's, but with the style's own tabs.
-		plain := qt.NewQTabWidget2()
+		plain := qtwidgets.NewQTabWidget(nil)
 		defer plain.Delete()
 		plain.SetDocumentMode(true)
 		plain.SetFont(tw.tabs.Font())
 		for i := range tabCount {
-			plain.AddTab2(qt.NewQWidget2(), tw.tabs.TabIcon(i), tw.tabs.TabText(i))
+			plain.AddTabIcon(qtwidgets.NewQWidget(nil), tw.tabs.TabIcon(i), tw.tabs.TabText(i))
 		}
 		plain.Resize(tw.tabs.Width(), tw.tabs.Height())
 		for i := range tabCount {
 			got, natural := bar.TabRect(i), plain.TabBar().TabRect(i)
-			if got.Width() < natural.Width()+tabPadX || got.Height() < natural.Height()+tabPadY {
-				t.Errorf("tab %d is %dx%d, want at least %dx%d", i, got.Width(), got.Height(), natural.Width()+tabPadX, natural.Height()+tabPadY)
+			if got.Width < natural.Width+tabPadX || got.Height < natural.Height+tabPadY {
+				t.Errorf("tab %d is %dx%d, want at least %dx%d", i, got.Width, got.Height, natural.Width+tabPadX, natural.Height+tabPadY)
 			}
 		}
 	})
@@ -757,10 +757,10 @@ func TestProcessFolding(t *testing.T) {
 		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
 	})
 	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		p := &tw.processes
 		tw.sampleProcesses()
-		find := func(name string) *qt.QTreeWidgetItem {
+		find := func(name string) *qtwidgets.QTreeWidgetItem {
 			all, _ := items(tw)
 			for _, item := range all {
 				if item.Text(colProcessName) == name {
@@ -782,7 +782,7 @@ func TestProcessFolding(t *testing.T) {
 		find("login").SetExpanded(false)
 		tw.advance(time.Second)
 		tw.sampleProcesses()
-		p.tree.Header().SetSortIndicator(colProcessName, qt.DescendingOrder)
+		p.tree.Header().SetSortIndicator(colProcessName, qtcore.DescendingOrder)
 		if find("login").IsExpanded() || !find("init").IsExpanded() || !find("bash").IsExpanded() {
 			t.Error("the branches are not as they were left")
 		}
@@ -821,7 +821,7 @@ func TestProcessFolding(t *testing.T) {
 func TestProcessesUnchosen(t *testing.T) {
 	tw := newTestWindow(t, showAll)
 	tw.source.set(func(f *fakeSource) { f.procs = treeProcesses })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		p := &tw.processes
 		tw.sampleProcesses()
 		tw.sendSignal()
@@ -833,7 +833,7 @@ func TestProcessesUnchosen(t *testing.T) {
 		p.signals.SetCurrentIndex(-1)
 		tw.sendSignal()
 
-		stranger := qt.NewQTreeWidgetItem()
+		stranger := qtwidgets.NewQTreeWidgetItem()
 		defer stranger.Delete()
 		p.fold(stranger, true)
 		if len(p.folded) != 0 {

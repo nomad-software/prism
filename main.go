@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"runtime"
 
-	qt "github.com/mappu/miqt/qt6"
-	"github.com/mappu/miqt/qt6/mainthread"
+	"github.com/nomad-software/qute"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
 
 	"github.com/nomad-software/prism/internal/appicon"
 	"github.com/nomad-software/prism/internal/desktop"
@@ -36,8 +36,6 @@ func main() {
 	case err != nil:
 		// The program runs, as it would without the check.
 		fmt.Fprintln(os.Stderr, "prism: another copy could be started beside this one:", err)
-	default:
-		defer claim.Close()
 	}
 
 	// The settings are kept where the system keeps the configuration of
@@ -48,30 +46,33 @@ func main() {
 		path = "settings.json"
 	}
 
-	qt.NewQApplication(os.Args)
-	qt.QCoreApplication_SetApplicationName("prism")
-	// Under Wayland this is the name a window goes by, which a desktop
-	// matches to the desktop entry of that name for its icon and its place
-	// in the task bar.
-	qt.QGuiApplication_SetDesktopFileName(desktop.Name)
+	code := qute.Main(func() {
+		qtcore.QCoreApplicationSetApplicationName("prism")
+		// Under Wayland this is the name a window goes by, which a desktop
+		// matches to the desktop entry of that name for its icon and its
+		// place in the task bar.
+		qtgui.QGuiApplicationSetDesktopFileName(desktop.Name)
 
-	// On Linux the desktop is given an entry for the program, which starts
-	// the copy that is running now, wherever it is and whatever it is
-	// called, so that it can be started from the desktop's own menus and
-	// kept in a dock or sidebar.
-	if runtime.GOOS == "linux" {
+		// The desktop is given an entry for the program, which starts the
+		// copy that is running now, wherever it is and whatever it is
+		// called, so that it can be started from the desktop's own menus
+		// and kept in a dock or sidebar.
 		if err := desktop.Install(appicon.PNG); err != nil {
 			fmt.Fprintln(os.Stderr, "prism: the desktop entry could not be written:", err)
 		}
-	}
 
-	window := ui.NewWindow(path, stats.New())
-	window.Start()
+		window := ui.NewWindow(path, stats.New())
+		window.Start()
+		if claim != nil {
+			claim.Serve(func(token string) {
+				qute.Post(func() { window.Activate(token) })
+			})
+		}
+	})
+	// The claim is let go of before leaving, as os.Exit runs no deferred
+	// calls.
 	if claim != nil {
-		claim.Serve(func(token string) {
-			mainthread.Start(func() { window.Activate(token) })
-		})
+		claim.Close()
 	}
-
-	qt.QApplication_Exec()
+	os.Exit(code)
 }

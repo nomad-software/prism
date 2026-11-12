@@ -99,7 +99,7 @@ type Process struct {
 	// more than one at once, but no more than 100 for each there is.
 	Busy float64
 	// Measured says whether Busy is known, which it is from the process's
-	// second reading, where it is not restricted.
+	// second reading.
 	Measured bool
 }
 
@@ -120,9 +120,6 @@ func (p *Processes) Update(at time.Time, now []stats.Process, processors int) []
 	for i, s := range now {
 		key := s.Key()
 		processes[i] = Process{Process: s}
-		if s.Restricted {
-			continue
-		}
 		last[key] = s.CPU
 		if before, ok := p.last[key]; ok && seconds > 0 {
 			processes[i].Measured = true

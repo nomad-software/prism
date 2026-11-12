@@ -410,7 +410,7 @@ func TestSignalSelf(t *testing.T) {
 		t.Fatal("the tests' own process is not listed")
 	}
 	self := processes[i]
-	if self.Name == "" || self.Memory == 0 || self.Restricted || self.Kernel || self.UID != os.Getuid() || self.PPID != os.Getppid() {
+	if self.Name == "" || self.Memory == 0 || self.Kernel || self.UID != os.Getuid() || self.PPID != os.Getppid() {
 		t.Errorf("own process = %+v", self)
 	}
 	if err := New().Signal(self, 0); err != nil {

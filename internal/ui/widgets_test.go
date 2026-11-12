@@ -10,8 +10,11 @@ import (
 	"testing"
 	"time"
 
-	qt "github.com/mappu/miqt/qt6"
-	"github.com/mappu/miqt/qt6/mainthread"
+	"github.com/nomad-software/qute"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
+	"github.com/nomad-software/qute/qtwidgets"
+	"github.com/nomad-software/qute/qutetest"
 
 	"github.com/nomad-software/prism/internal/chart"
 	"github.com/nomad-software/prism/internal/history"
@@ -20,19 +23,18 @@ import (
 )
 
 // render draws the widget into an image of its size.
-func render(w *qt.QWidget) *qt.QImage {
-	img := qt.NewQImage3(w.Width(), w.Height(), qt.QImage__Format_ARGB32)
+func render(w *qtwidgets.QWidget) *qtgui.QImage {
+	img := qtgui.NewQImageWithSize(qtcore.QSize{Width: w.Width(), Height: w.Height()}, qtgui.QImageFormat_ARGB32)
 	img.Fill(0)
-	w.Render(img.QPaintDevice)
+	w.Render(img)
 	return img
 }
 
 // countColour counts the pixels of the image that are the colour, as
 // #rrggbb, or near it, as the edges of what is drawn smoothly are.
-func countColour(img *qt.QImage, colour string) int {
-	want := qt.NewQColor6(colour)
-	defer want.Delete()
-	r, g, b := want.Red(), want.Green(), want.Blue()
+func countColour(img *qtgui.QImage, colour string) int {
+	want := parseColour(colour)
+	r, g, b := int(want.R), int(want.G), int(want.B)
 	near := func(got, want int) bool { return got-want < 80 && want-got < 80 }
 	n := 0
 	for y := range img.Height() {
@@ -48,7 +50,7 @@ func countColour(img *qt.QImage, colour string) int {
 }
 
 func TestGraphPaint(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		g := newGraph()
 		defer g.Delete()
 		g.Resize(400, 160)
@@ -76,7 +78,7 @@ func TestGraphPaint(t *testing.T) {
 }
 
 func TestGraphHold(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		g := newGraph()
 		defer g.Delete()
 		g.Resize(400, 160)
@@ -95,14 +97,13 @@ func TestGraphHold(t *testing.T) {
 		img := render(g.QWidget)
 		defer img.Delete()
 		right := func(colour string) int {
-			want := qt.NewQColor6(colour)
-			defer want.Delete()
+			want := parseColour(colour)
 			// The edges of a line drawn smoothly are near its colour.
 			near := func(got, want int) bool { return got-want < 80 && want-got < 80 }
 			last := -1
 			for x := range img.Width() {
 				for y := range img.Height() {
-					if p := int(img.Pixel(x, y)); near(p>>16&0xff, want.Red()) && near(p>>8&0xff, want.Green()) && near(p&0xff, want.Blue()) {
+					if p := int(img.Pixel(x, y)); near(p>>16&0xff, int(want.R)) && near(p>>8&0xff, int(want.G)) && near(p&0xff, int(want.B)) {
 						last = x
 					}
 				}
@@ -111,7 +112,7 @@ func TestGraphHold(t *testing.T) {
 		}
 		font := smallFont(g.QWidget)
 		defer font.Delete()
-		fm := qt.NewQFontMetrics(font)
+		fm := qtgui.NewQFontMetricsWithFont(font)
 		defer fm.Delete()
 		r := plotRect(g.Width(), g.Height(), g.labels, fm)
 		if x := right("#ff0000"); float64(x) < r.X+r.W-2 {
@@ -130,7 +131,7 @@ func TestGraphHold(t *testing.T) {
 // TestGraphKept checks that a graph draws its background and makes its
 // curves again only when what they show changes, and not as it moves along.
 func TestGraphKept(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		g := newGraph()
 		defer g.Delete()
 		g.Resize(400, 160)
@@ -196,7 +197,7 @@ func TestGraphKept(t *testing.T) {
 // TestGraphExtends checks that lines stroked a reading at a time look as they
 // do stroked whole, and that what cannot go on from them strokes them whole.
 func TestGraphExtends(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		start := time.Unix(1_700_000_000, 0)
 		value := func(i, n int) float64 { return 50 + 45*math.Sin(float64(i*(n+3))*0.7) }
 		series := [3]history.Series{}
@@ -212,7 +213,7 @@ func TestGraphExtends(t *testing.T) {
 		g := newGraph()
 		defer g.Delete()
 		g.Resize(600, 200)
-		var pen *qt.QPen
+		var pen *qtgui.QPen
 		var at time.Time
 		for i := range 90 {
 			// Not a whole number of pixels from one reading to the next.
@@ -273,30 +274,30 @@ func TestGraphExtends(t *testing.T) {
 // moves along only once its lines have moved by a pixel, and one that is not
 // shown is not drawn.
 func TestGraphAdvance(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		g := newGraph()
 		defer g.Delete()
 		g.Resize(400, 160)
 		now := time.Unix(1_700_000_000, 0)
 		g.show(now, time.Minute, 100, chart.PercentLabels(), nil, "#0000ff")
 		g.advance(now.Add(time.Hour))
-		qt.QCoreApplication_ProcessEvents()
+		qute.ProcessEvents()
 		if !g.drawn.IsZero() {
 			t.Error("a graph that is not shown was drawn")
 		}
 		g.Show()
-		qt.QCoreApplication_ProcessEvents()
+		qute.ProcessEvents()
 		drawn := g.drawn
 		if drawn.IsZero() {
 			t.Fatal("the graph was not drawn when shown")
 		}
 		g.advance(drawn.Add(g.pixelTime() / 2))
-		qt.QCoreApplication_ProcessEvents()
+		qute.ProcessEvents()
 		if !g.drawn.Equal(drawn) {
 			t.Error("the graph was drawn again before its lines moved by a pixel")
 		}
 		g.advance(drawn.Add(g.pixelTime()))
-		qt.QCoreApplication_ProcessEvents()
+		qute.ProcessEvents()
 		if !g.drawn.Equal(drawn.Add(g.pixelTime())) {
 			t.Error("the graph was not drawn again once its lines moved by a pixel")
 		}
@@ -304,10 +305,10 @@ func TestGraphAdvance(t *testing.T) {
 }
 
 func TestPlotRect(t *testing.T) {
-	mainthread.Wait(func() {
-		font := qt.NewQFont()
+	qutetest.Run(t, func() {
+		font := qtgui.NewQFont()
 		defer font.Delete()
-		fm := qt.NewQFontMetrics(font)
+		fm := qtgui.NewQFontMetricsWithFont(font)
 		defer fm.Delete()
 		labels := chart.PercentLabels()
 		r := plotRect(400, 200, labels, fm)
@@ -330,7 +331,7 @@ func TestPlotRect(t *testing.T) {
 }
 
 func TestLegendLayout(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(false)
 		defer l.Delete()
 		// A widget that is not shown is not told it was resized.
@@ -389,7 +390,7 @@ func (l *legend) entryWidthFor(entries []entry) int {
 }
 
 func TestLegendSwatches(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(true)
 		defer l.Delete()
 		l.Resize(1000, 10)
@@ -418,11 +419,11 @@ func TestLegendSwatches(t *testing.T) {
 		}
 		// Hovering over a swatch rings it, and leaving it clears that.
 		l.hover(1)
-		if l.hovered != 1 || l.Cursor().Shape() != qt.PointingHandCursor {
+		if l.hovered != 1 || l.Cursor().Shape() != qtcore.PointingHandCursor {
 			t.Error("the hovered swatch is not ringed with a hand pointer")
 		}
 		l.hover(-1)
-		if l.hovered != -1 || l.Cursor().Shape() == qt.PointingHandCursor {
+		if l.hovered != -1 || l.Cursor().Shape() == qtcore.PointingHandCursor {
 			t.Error("the ring is not cleared")
 		}
 		img := render(l.QWidget)
@@ -448,9 +449,9 @@ func TestSettingsDialog(t *testing.T) {
 	current.AdapterAliases = map[string]string{"eth0": "Wired", "gone": "Old"}
 
 	var got *settings.Settings
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		d := newSettingsDialog(nil, current, 3, []string{"eth0", "wlan0"}, 16, func(s settings.Settings) { got = &s })
-		if d.shown.RowCount() != 2 || d.shown.Item(0, colAdapterName).CheckState() != qt.Checked || d.shown.Item(1, colAdapterName).CheckState() != qt.Unchecked {
+		if d.shown.RowCount() != 2 || d.shown.Item(0, colAdapterName).CheckState() != qtcore.Checked || d.shown.Item(1, colAdapterName).CheckState() != qtcore.Unchecked {
 			t.Error("the adapters shown are not ticked")
 		}
 		if d.shown.Item(0, colAdapterAlias).Text() != "Wired" || d.shown.Item(1, colAdapterAlias).Text() != "" {
@@ -470,8 +471,8 @@ func TestSettingsDialog(t *testing.T) {
 		}
 		// It opens big enough for its tabs, so that their rows are not
 		// squashed.
-		if hint := d.SizeHint(); d.Width() < hint.Width() || d.Height() < hint.Height() {
-			t.Errorf("the dialog is %dx%d, smaller than its %dx%d", d.Width(), d.Height(), hint.Width(), hint.Height())
+		if hint := d.SizeHint(); d.Width() < hint.Width || d.Height() < hint.Height {
+			t.Errorf("the dialog is %dx%d, smaller than its %dx%d", d.Width(), d.Height(), hint.Width, hint.Height)
 		}
 		if currentData(d.cpuMode) != settings.CPUTotal || currentData(d.theme) != settings.ThemeLight ||
 			currentData(d.sizeUnits) != settings.SizeBinary || currentData(d.rateUnits) != settings.RateBits {
@@ -496,12 +497,12 @@ func TestSettingsDialog(t *testing.T) {
 		d.adapters[0].set("#666666")
 		// A core set back to its default is not kept as a choice.
 		d.cores[1].set(settings.DefaultCore(1))
-		d.shown.Item(0, colAdapterName).SetCheckState(qt.Unchecked)
-		d.shown.Item(1, colAdapterName).SetCheckState(qt.Checked)
+		d.shown.Item(0, colAdapterName).SetCheckState(qtcore.Unchecked)
+		d.shown.Item(1, colAdapterName).SetCheckState(qtcore.Checked)
 		d.shown.Item(0, colAdapterAlias).SetText("  ")
 		d.shown.Item(1, colAdapterAlias).SetText(" Wireless ")
 
-		d.box.Button(qt.QDialogButtonBox__Ok).Click()
+		d.box.Button(qtwidgets.QDialogButtonBoxOk).Click()
 	})
 	if got == nil {
 		t.Fatal("accepted was not called")
@@ -550,7 +551,7 @@ func TestSettingsDialogUseDefaultColours(t *testing.T) {
 	current.Colours.SetCore(0, "#111111")
 	current.Colours.Network = map[string]string{"eth0": "#222222"}
 	current.HiddenAdapters = []string{"eth0"}
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		d := newSettingsDialog(nil, current, 1, []string{"eth0"}, 16, func(settings.Settings) {})
 		defer d.Reject()
 		if d.resetColours.Text() != "Use Default Colours" {
@@ -564,14 +565,14 @@ func TestSettingsDialogUseDefaultColours(t *testing.T) {
 			t.Error("the adapter was not given its colour afresh")
 		}
 		// Only the colours are reset.
-		if d.cpuInterval.Value() != 9 || d.shown.Item(0, colAdapterName).CheckState() != qt.Unchecked {
+		if d.cpuInterval.Value() != 9 || d.shown.Item(0, colAdapterName).CheckState() != qtcore.Unchecked {
 			t.Error("Use Default Colours changed more than the colours")
 		}
 	})
 }
 
 func TestSwatch(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		s := newSwatch(nil, "Grid")
 		defer s.Delete()
 		s.set("#80ffffff")
@@ -588,19 +589,18 @@ func TestSwatch(t *testing.T) {
 }
 
 func TestReadableOn(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		for colour, want := range map[string]string{"#ffffff": "#000000", "#000000": "#ffffff", "#f6d32d": "#000000", "#1c71d8": "#ffffff"} {
-			c := qt.NewQColor6(colour)
+			c := parseColour(colour)
 			if got := readableOn(c); got != want {
 				t.Errorf("readableOn(%s) = %s, want %s", colour, got, want)
 			}
-			c.Delete()
 		}
 	})
 }
 
 func TestSectionHeadingAndNote(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		h := sectionHeading("Colours")
 		defer h.Delete()
 		if !h.Font().Bold() {
@@ -625,14 +625,14 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 	current.AdapterAliases = map[string]string{"eth0": "Wired"}
 
 	var got *settings.Settings
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		d := newSettingsDialog(nil, current, 1, []string{"eth0", "wlan0"}, 16, func(s settings.Settings) { got = &s })
-		d.box.Button(qt.QDialogButtonBox__RestoreDefaults).Click()
+		d.box.Button(qtwidgets.QDialogButtonBoxRestoreDefaults).Click()
 		if d.cpuInterval.Value() != settings.DefaultIntervals.CPU || currentData(d.theme) != "" || d.grid.colour != settings.DefaultGrid ||
 			d.shown.Item(0, colAdapterAlias).Text() != "" {
 			t.Error("the defaults are not shown")
 		}
-		d.box.Button(qt.QDialogButtonBox__Ok).Click()
+		d.box.Button(qtwidgets.QDialogButtonBoxOk).Click()
 	})
 	if got == nil {
 		t.Fatal("accepted was not called")
@@ -655,12 +655,12 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 
 func TestSettingsDialogCancel(t *testing.T) {
 	called := false
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, 16, func(settings.Settings) { called = true })
 		if d.adapters != nil {
 			t.Error("there are adapter buttons with no adapters")
 		}
-		d.box.Button(qt.QDialogButtonBox__Cancel).Click()
+		d.box.Button(qtwidgets.QDialogButtonBoxCancel).Click()
 		if d.IsVisible() {
 			t.Error("the dialog is still shown")
 		}
@@ -670,24 +670,9 @@ func TestSettingsDialogCancel(t *testing.T) {
 	}
 }
 
-func TestColourName(t *testing.T) {
-	mainthread.Wait(func() {
-		opaque := qt.NewQColor6("#AbCdEf")
-		defer opaque.Delete()
-		if n := colourName(opaque); n != "#abcdef" {
-			t.Errorf("opaque = %q", n)
-		}
-		clear := qt.NewQColor6("#80abcdef")
-		defer clear.Delete()
-		if n := colourName(clear); n != "#80abcdef" {
-			t.Errorf("translucent = %q", n)
-		}
-	})
-}
-
 func TestSelectData(t *testing.T) {
-	mainthread.Wait(func() {
-		box := qt.NewQComboBox2()
+	qutetest.Run(t, func() {
+		box := qtwidgets.NewQComboBox(nil)
 		defer box.Delete()
 		addItem(box, "A", "a")
 		addItem(box, "B", "b")
@@ -736,18 +721,18 @@ func TestScreenshot(t *testing.T) {
 				"docker0": {Received: uint64(step) * 1000, Sent: uint64(step) * 500},
 			}
 		})
-		mainthread.Wait(func() {
+		qutetest.Run(t, func() {
 			tw.sampleCPU()
 			tw.sampleMemory()
 			tw.sampleNetwork()
 		})
 		tw.advance(2 * time.Second)
 	}
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.Resize(900, 820)
-		// The picture is a copy, which its finalizer frees.
+		// The picture is a copy, which the garbage collector frees.
 		img := tw.Grab()
-		if !img.Save(path) {
+		if err := img.Save(path); err != nil {
 			t.Errorf("the screenshot could not be saved to %s", path)
 		}
 	})
@@ -760,7 +745,7 @@ func stubColour(t *testing.T, colour string) *[]string {
 	t.Helper()
 	asked := &[]string{}
 	old := pickColour
-	pickColour = func(_ *qt.QWidget, name, initial string) (string, bool) {
+	pickColour = func(_ qtwidgets.QWidgetLike, name, initial string) (string, bool) {
 		*asked = append(*asked, name+" "+initial)
 		return colour, colour != ""
 	}
@@ -770,7 +755,7 @@ func stubColour(t *testing.T, colour string) *[]string {
 
 // differ counts the pixels of the part of each image, at x, y and as big
 // as w by h, that are not the same in both.
-func differ(a, b *qt.QImage, x, y, w, h int) int {
+func differ(a, b *qtgui.QImage, x, y, w, h int) int {
 	n := 0
 	for j := y; j < y+h; j++ {
 		for i := x; i < x+w; i++ {
@@ -783,8 +768,8 @@ func differ(a, b *qt.QImage, x, y, w, h int) int {
 }
 
 func TestGraphTitle(t *testing.T) {
-	mainthread.Wait(func() {
-		images := map[string]*qt.QImage{}
+	qutetest.Run(t, func() {
+		images := map[string]*qtgui.QImage{}
 		for _, title := range []string{"", "Download", "Upload"} {
 			g := newGraph()
 			g.title = title
@@ -816,7 +801,7 @@ func TestGraphTitle(t *testing.T) {
 func TestLegendClick(t *testing.T) {
 	var set []string
 	asked := stubColour(t, "#123456")
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(false)
 		defer l.Delete()
 		l.Show()
@@ -852,7 +837,7 @@ func TestLegendClick(t *testing.T) {
 
 func TestLegendClickCancelled(t *testing.T) {
 	stubColour(t, "")
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(false)
 		defer l.Delete()
 		l.Show()
@@ -869,7 +854,7 @@ func TestLegendClickCancelled(t *testing.T) {
 
 func TestLegendSwatchPlaces(t *testing.T) {
 	colours := []string{"#ff0000", "#00ff00", "#0000ff", "#ffff00", "#ff00ff"}
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(false)
 		defer l.Delete()
 		l.Show()
@@ -902,7 +887,7 @@ func TestLegendSwatchPlaces(t *testing.T) {
 }
 
 func TestLegendRing(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(false)
 		defer l.Delete()
 		l.Show()
@@ -929,7 +914,7 @@ func TestLegendRing(t *testing.T) {
 
 func TestSwatchPick(t *testing.T) {
 	asked := stubColour(t, "#abcdef")
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		s := newSwatch(nil, "Grid")
 		defer s.Delete()
 		s.set("#000000")
@@ -942,7 +927,7 @@ func TestSwatchPick(t *testing.T) {
 		}
 	})
 	stubColour(t, "")
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		s := newSwatch(nil, "Grid")
 		defer s.Delete()
 		s.set("#000000")
@@ -955,17 +940,16 @@ func TestSwatchPick(t *testing.T) {
 
 // sendMouse sends the widget a mouse event of the type, with the button, at
 // the place.
-func sendMouse(w *qt.QWidget, kind qt.QEvent__Type, button qt.MouseButton, x, y float64) {
-	pos := qt.NewQPointF3(x, y)
-	defer pos.Delete()
-	e := qt.NewQMouseEvent(kind, pos, button, button, qt.NoModifier)
+func sendMouse(w qtwidgets.QWidgetLike, kind qtcore.QEventType, button qtcore.MouseButton, x, y float64) {
+	pos := qtcore.QPointF{X: x, Y: y}
+	e := qtgui.NewQMouseEvent(kind, pos, pos, button, button, qtcore.NoModifier)
 	defer e.Delete()
-	qt.QCoreApplication_SendEvent(w.QObject, e.QEvent)
+	qtcore.QCoreApplicationSendEvent(w.AsQWidget(), e)
 }
 
 func TestLegendMouseEvents(t *testing.T) {
 	asked := stubColour(t, "#123456")
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(false)
 		defer l.Delete()
 		l.Show()
@@ -974,23 +958,23 @@ func TestLegendMouseEvents(t *testing.T) {
 		fm := l.FontMetrics()
 		x, y := l.swatchPlace(0, l.grid(), fm.Height())
 
-		sendMouse(l.QWidget, qt.QEvent__MouseMove, qt.NoButton, x+1, y+1)
+		sendMouse(l, qtcore.QEventMouseMove, qtcore.NoButton, x+1, y+1)
 		if l.hovered != 0 {
 			t.Error("moving over the swatch does not ring it")
 		}
-		leave := qt.NewQEvent(qt.QEvent__Leave)
+		leave := qtcore.NewQEvent(qtcore.QEventLeave)
 		defer leave.Delete()
-		qt.QCoreApplication_SendEvent(l.QObject, leave)
+		qtcore.QCoreApplicationSendEvent(l, leave)
 		if l.hovered != -1 {
 			t.Error("leaving the legend does not clear the ring")
 		}
 
 		// Only the left button chooses a colour.
-		sendMouse(l.QWidget, qt.QEvent__MouseButtonPress, qt.RightButton, x+1, y+1)
+		sendMouse(l, qtcore.QEventMouseButtonPress, qtcore.RightButton, x+1, y+1)
 		if len(*asked) != 0 {
 			t.Error("the right button chose a colour")
 		}
-		sendMouse(l.QWidget, qt.QEvent__MouseButtonPress, qt.LeftButton, x+1, y+1)
+		sendMouse(l, qtcore.QEventMouseButtonPress, qtcore.LeftButton, x+1, y+1)
 		if len(*asked) != 1 {
 			t.Errorf("the left button asked %d times", len(*asked))
 		}
@@ -1002,31 +986,31 @@ func TestLegendMouseEvents(t *testing.T) {
 // with.
 func answerColourDialog(colour string) *string {
 	title := new(string)
-	timer := qt.NewQTimer()
+	timer := qtcore.NewQTimer(nil)
 	timer.SetInterval(10)
 	timer.OnTimeout(func() {
-		w := qt.QApplication_ActiveModalWidget()
+		w := qtwidgets.QApplicationActiveModalWidget()
 		if w == nil {
 			return
 		}
 		timer.Stop()
+		// A timer with no parent holds itself until it is deleted.
+		timer.DeleteLater()
 		*title = w.WindowTitle()
-		d := qt.UnsafeNewQColorDialog(w.UnsafePointer())
+		d := qtwidgets.QColorDialogCast(w)
 		if colour == "" {
 			d.Reject()
 			return
 		}
-		c := qt.NewQColor6(colour)
-		defer c.Delete()
-		d.SetCurrentColor(c)
+		d.SetCurrentColor(parseColour(colour))
 		d.Accept()
 	})
-	timer.Start2()
+	timer.Start()
 	return title
 }
 
 func TestPickColour(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		title := answerColourDialog("#80123456")
 		colour, ok := pickColour(nil, "Grid", "#000000")
 		if !ok || colour != "#80123456" {
@@ -1043,8 +1027,8 @@ func TestPickColour(t *testing.T) {
 }
 
 func TestLegendFaint(t *testing.T) {
-	mainthread.Wait(func() {
-		images := map[bool]*qt.QImage{}
+	qutetest.Run(t, func() {
+		images := map[bool]*qtgui.QImage{}
 		var l *legend
 		for _, faint := range []bool{false, true} {
 			l = newLegend(faint)
@@ -1068,7 +1052,7 @@ func TestLegendFaint(t *testing.T) {
 }
 
 func TestLegendNamesShrink(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		l := newLegend(true)
 		defer l.Delete()
 		l.show([]entry{{"#ff0000", "Mozilla VPN", "↓ 0 b/s", nil}, {"#00ff00", "LAN", "↓ 0 b/s", nil}})
@@ -1083,8 +1067,8 @@ func TestLegendNamesShrink(t *testing.T) {
 }
 
 func TestLegendFaintValueFollowsName(t *testing.T) {
-	mainthread.Wait(func() {
-		images := map[string]*qt.QImage{}
+	qutetest.Run(t, func() {
+		images := map[string]*qtgui.QImage{}
 		var l *legend
 		for _, value := range []string{"↓ 1.0 MB/s", ""} {
 			l = newLegend(true)

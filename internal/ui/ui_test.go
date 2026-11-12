@@ -4,39 +4,32 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	qt "github.com/mappu/miqt/qt6"
-	"github.com/mappu/miqt/qt6/mainthread"
+	"github.com/nomad-software/qute/qtcore"
+	"github.com/nomad-software/qute/qtgui"
+	"github.com/nomad-software/qute/qtwidgets"
+	"github.com/nomad-software/qute/qutetest"
 
 	"github.com/nomad-software/prism/internal/chart"
 	"github.com/nomad-software/prism/internal/settings"
 	"github.com/nomad-software/prism/internal/stats"
 )
 
-// TestMain runs the tests on a goroutine of their own while Qt's event loop
+// TestMain runs the tests on goroutines of their own while Qt's event loop
 // runs on the main thread, as it has to; the tests do what they do with Qt
-// on it through mainthread.Wait.
+// on it through qutetest.Run. They draw offscreen, whatever display there
+// is, and closing a window does not end the event loop.
 func TestMain(m *testing.M) {
 	os.Setenv("QT_QPA_PLATFORM", "offscreen")
-	qt.NewQApplication(os.Args[:1])
-	// Tests close windows, which must not end the event loop.
-	qt.QGuiApplication_SetQuitOnLastWindowClosed(false)
-
-	code := 0
-	go func() {
-		code = m.Run()
-		mainthread.Start(qt.QCoreApplication_Quit)
-	}()
-	qt.QApplication_Exec()
-	os.Exit(code)
+	qutetest.TestMain(m)
 }
 
 // fakeSource is a source of statistics that tests set.
@@ -105,7 +98,7 @@ var start = time.Unix(1_700_000_000, 0)
 
 // newTestWindow makes a window, with settings changed by configure if it is
 // not nil, and shows it without its timers running.
-func newTestWindow(t *testing.T, configure func(*settings.Settings)) *testWindow {
+func newTestWindow(t testing.TB, configure func(*settings.Settings)) *testWindow {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "settings.json")
 	// The tests read sizes and rates in binary units of bytes, which are
@@ -119,14 +112,14 @@ func newTestWindow(t *testing.T, configure func(*settings.Settings)) *testWindow
 		t.Fatal(err)
 	}
 	tw := &testWindow{source: &fakeSource{}, path: path, clock: start}
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.Window = NewWindow(path, tw.source)
 		tw.now = func() time.Time { return tw.clock }
 		tw.Resize(900, 820)
 		tw.Show()
 	})
 	t.Cleanup(func() {
-		mainthread.Wait(func() {
+		qutetest.Run(t, func() {
 			tw.Close()
 			tw.DeleteLater()
 			applyTheme("")
@@ -142,13 +135,13 @@ func (tw *testWindow) advance(d time.Duration) {
 
 func TestNewWindow(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		if title := tw.WindowTitle(); title != "Prism" {
 			t.Errorf("title = %q", title)
 		}
 		d := settings.DefaultIntervals
 		for name, timer := range map[string]struct {
-			*qt.QTimer
+			*qtcore.QTimer
 			interval float64
 		}{"CPU": {tw.cpu.timer, d.CPU}, "memory": {tw.memory.timer, d.Memory}, "network": {tw.network.timer, d.Network}, "processes": {tw.processes.timer, d.Processes}} {
 			if ms := int(settings.Duration(timer.interval) / time.Millisecond); timer.Interval() != ms {
@@ -168,7 +161,7 @@ func TestNewWindow(t *testing.T) {
 		if !slices.Equal(menus, []string{"&File", "&Help"}) {
 			t.Fatalf("menus = %q", menus)
 		}
-		items := func(m *qt.QMenu) []string {
+		items := func(m *qtwidgets.QMenu) []string {
 			var items []string
 			for _, a := range m.Actions() {
 				if !a.IsSeparator() {
@@ -197,10 +190,10 @@ func TestStart(t *testing.T) {
 		f.network = map[string]stats.NetCounters{"eth0": {}}
 		f.procs = []stats.Process{{PID: 1, Name: "init"}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.Start()
 		defer func() {
-			for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
+			for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
 				if !timer.IsActive() {
 					t.Error("a timer is not running after Start")
 				}
@@ -212,7 +205,7 @@ func TestStart(t *testing.T) {
 			}
 			tw.frames.Stop()
 		}()
-		if !tw.IsMaximized() && !tw.IsFullScreen() && tw.WindowState()&qt.WindowMaximized == 0 {
+		if !tw.IsMaximized() && !tw.IsFullScreen() && tw.WindowState()&qtcore.WindowMaximized == 0 {
 			t.Error("the window is not maximised, as the settings say it was")
 		}
 		// Every graph is drawn across from the first reading: memory at
@@ -234,9 +227,9 @@ func TestStart(t *testing.T) {
 }
 
 // menuAction returns the action of the menu bar's menus with the text.
-func menuAction(t *testing.T, tw *testWindow, text string) *qt.QAction {
+func menuAction(t *testing.T, tw *testWindow, text string) *qtgui.QAction {
 	t.Helper()
-	for _, m := range []*qt.QMenu{tw.file, tw.help} {
+	for _, m := range []*qtwidgets.QMenu{tw.file, tw.help} {
 		for _, a := range m.Actions() {
 			if a.Text() == text {
 				return a
@@ -249,9 +242,9 @@ func menuAction(t *testing.T, tw *testWindow, text string) *qt.QAction {
 
 func TestMenuShortcuts(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		for text, want := range map[string]string{"&Settings…": "Ctrl+,", "&Quit": "Ctrl+Q", "&About": "Ctrl+I"} {
-			// The shortcut is a copy, which its finalizer frees.
+			// The shortcut is a copy, which the garbage collector frees.
 			if got := menuAction(t, tw, text).Shortcut().ToString(); got != want {
 				t.Errorf("%s shortcut = %q, want %q", text, got, want)
 			}
@@ -261,10 +254,10 @@ func TestMenuShortcuts(t *testing.T) {
 
 func TestAboutAction(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		menuAction(t, tw, "&About").Trigger()
-		var about *qt.QWidget
-		for _, w := range qt.QApplication_TopLevelWidgets() {
+		var about *qtwidgets.QWidget
+		for _, w := range qtwidgets.QApplicationTopLevelWidgets() {
 			if w.WindowTitle() == "About Prism" && w.IsVisible() {
 				about = w
 			}
@@ -293,14 +286,14 @@ func TestPlainVersion(t *testing.T) {
 }
 
 func TestAbout(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		d := newAboutDialog(nil)
 		defer d.DeleteLater()
 		if d.version.Text() != appVersion() {
 			t.Errorf("the version shown is %q", d.version.Text())
 		}
 		licences := licenceText()
-		for _, want := range []string{qt.QLibraryInfo_Version().ToString(), "LGPLv3", "miqt", "Solarized"} {
+		for _, want := range []string{qtcore.QLibraryInfoVersion().ToString(), "LGPLv3", "qute", "Solarized"} {
 			if !strings.Contains(licences, want) {
 				t.Errorf("the licences do not mention %s", want)
 			}
@@ -316,7 +309,7 @@ func TestAbout(t *testing.T) {
 			}
 		}
 		d.Layout().Activate()
-		if need := d.Layout().HeightForWidth(d.Width()); d.Height() < need {
+		if need := d.Layout().AsQLayoutItem().HeightForWidth(d.Width()); d.Height() < need {
 			t.Errorf("the about box is %d high, and needs %d", d.Height(), need)
 		}
 	})
@@ -324,8 +317,8 @@ func TestAbout(t *testing.T) {
 
 func TestQuit(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
-		var quit *qt.QAction
+	qutetest.Run(t, func() {
+		var quit *qtgui.QAction
 		for _, a := range tw.file.Actions() {
 			if a.Text() == "&Quit" {
 				quit = a
@@ -351,7 +344,7 @@ func TestSampleCPU(t *testing.T) {
 			Cores: []stats.CPUTimes{{Busy: 50, Idle: 50}, {Busy: 50, Idle: 50}},
 		}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		// The cores are listed from the first reading, without their use.
 		entries := tw.cpu.legend.entries
@@ -367,7 +360,7 @@ func TestSampleCPU(t *testing.T) {
 		f.cpu.Cores[1] = stats.CPUTimes{Busy: 100, Idle: 50}
 	})
 	tw.advance(2 * time.Second)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		if len(tw.cpu.cores) != 2 {
 			t.Fatalf("%d cores, want 2", len(tw.cpu.cores))
@@ -394,9 +387,9 @@ func TestSampleCPU(t *testing.T) {
 	// Points older than the span are dropped but for the newest of them.
 	for range 40 {
 		tw.advance(2 * time.Second)
-		mainthread.Wait(tw.sampleCPU)
+		qutetest.Run(t, tw.sampleCPU)
 	}
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		points := tw.cpu.all.Points()
 		if first := points[0].T; first.After(tw.clock.Add(-time.Minute)) {
 			t.Errorf("the first point is at %v, after the left edge", first)
@@ -415,12 +408,12 @@ func TestCPUTotalMode(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 0, Idle: 0}, Cores: []stats.CPUTimes{{}, {}}}
 	})
-	mainthread.Wait(tw.sampleCPU)
+	qutetest.Run(t, tw.sampleCPU)
 	tw.source.set(func(f *fakeSource) {
 		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 1, Idle: 3}, Cores: []stats.CPUTimes{{}, {}}}
 	})
 	tw.advance(time.Second)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		entries := tw.cpu.total.entries
 		if len(entries) != 1 || !sameEntry(entries[0], entry{"#123456", "CPU", "25.0%", nil}) {
@@ -438,7 +431,7 @@ func TestCPUTotalMode(t *testing.T) {
 func TestReadErrors(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	tw.source.set(func(f *fakeSource) { f.err = errors.New("no such file") })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		tw.sampleMemory()
 		tw.sampleNetwork()
@@ -452,7 +445,7 @@ func TestReadErrors(t *testing.T) {
 		f.err = nil
 		f.memory = stats.Memory{Total: 1}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleMemory()
 		if tw.memory.errors.IsVisible() {
 			t.Error("the error is still shown after a reading that worked")
@@ -466,7 +459,7 @@ func TestSampleMemory(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.memory = stats.Memory{Total: 16 * gib, Used: 4 * gib}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleMemory()
 		want := []entry{
 			{settings.DefaultMemory, "Memory", "4.0 GiB (25.0%)", nil},
@@ -502,19 +495,45 @@ func TestSampleMemory(t *testing.T) {
 	})
 }
 
+// TestAdapterColoursOrdered checks that adapters seen for the first time in
+// the same reading are given colours in the order of their names, the same
+// each time, not in whatever order a map gives them.
+func TestAdapterColoursOrdered(t *testing.T) {
+	names := []string{"wlan0", "lo", "enp5s0", "docker0", "virbr0", "eth1"}
+	want := settings.Defaults().Colours.Clone()
+	for _, name := range slices.Sorted(slices.Values(names)) {
+		want.Adapter(name)
+	}
+	// Maps are iterated in another order each time, so a few windows would
+	// tell colours given in map order.
+	for range 5 {
+		tw := newTestWindow(t, nil)
+		tw.source.set(func(f *fakeSource) {
+			f.network = map[string]stats.NetCounters{}
+			for _, name := range names {
+				f.network[name] = stats.NetCounters{}
+			}
+		})
+		qutetest.Run(t, tw.sampleNetwork)
+		if got := settings.Load(tw.path).Colours.Network; !maps.Equal(got, want.Network) {
+			t.Fatalf("colours = %v, want %v", got, want.Network)
+		}
+	}
+}
+
 func TestSampleNetwork(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	tw.source.set(func(f *fakeSource) {
 		f.network = map[string]stats.NetCounters{"lo": {Received: 0, Sent: 0}, "eth0": {Received: 1000, Sent: 0}}
 	})
-	mainthread.Wait(tw.sampleNetwork)
+	qutetest.Run(t, tw.sampleNetwork)
 
 	// The colours of the adapters are given and saved at once.
 	saved := settings.Load(tw.path).Colours.Network
 	if len(saved) != 2 || saved["eth0"] == saved["lo"] {
 		t.Errorf("saved colours = %v, want one for each adapter", saved)
 	}
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		if p := tw.network.adapters["eth0"].received.Points(); len(p) != 2 || p[0].V != 0 || p[1].V != 0 {
 			t.Errorf("an adapter is not a line of 0 after a single reading: %+v", p)
 		}
@@ -524,7 +543,7 @@ func TestSampleNetwork(t *testing.T) {
 		f.network = map[string]stats.NetCounters{"lo": {Received: 0, Sent: 0}, "eth0": {Received: 3 * 1024 * 1024, Sent: 2048}}
 	})
 	tw.advance(2 * time.Second)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleNetwork()
 		entries := tw.network.legend.entries
 		if len(entries) != 2 || entries[0].label != "eth0" || entries[1].label != "lo" {
@@ -556,7 +575,7 @@ func TestSampleNetwork(t *testing.T) {
 		f.network = map[string]stats.NetCounters{"lo": {Received: 0, Sent: 0}}
 	})
 	tw.advance(2 * time.Second)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleNetwork()
 		if len(tw.network.legend.entries) != 1 {
 			t.Errorf("legend = %+v, want only lo", tw.network.legend.entries)
@@ -566,7 +585,7 @@ func TestSampleNetwork(t *testing.T) {
 		}
 	})
 	tw.advance(2 * time.Minute)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleNetwork()
 		if _, ok := tw.network.adapters["eth0"]; ok {
 			t.Error("eth0 is kept after its line has gone off the graphs")
@@ -585,12 +604,12 @@ func TestHiddenAdapters(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.network = map[string]stats.NetCounters{"lo": {Received: 0}, "eth0": {Received: 0}}
 	})
-	mainthread.Wait(tw.sampleNetwork)
+	qutetest.Run(t, tw.sampleNetwork)
 	tw.source.set(func(f *fakeSource) {
 		f.network = map[string]stats.NetCounters{"lo": {Received: 1 << 30}, "eth0": {Received: 1024}}
 	})
 	tw.advance(time.Second)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleNetwork()
 		entries := tw.network.legend.entries
 		if len(entries) != 1 || entries[0].label != "eth0" {
@@ -635,7 +654,7 @@ func TestHiddenAdapters(t *testing.T) {
 func TestApplySettings(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	tw.source.set(func(f *fakeSource) { f.memory = stats.Memory{Total: 100, Used: 10} })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleMemory()
 		tw.Resize(800, 750)
 		s := tw.config
@@ -658,9 +677,7 @@ func TestApplySettings(t *testing.T) {
 		if tw.memory.legend.entries[0].colour != "#010203" {
 			t.Errorf("memory colour = %q", tw.memory.legend.entries[0].colour)
 		}
-		// The palette is a copy, which its finalizer frees.
-		palette := qt.QGuiApplication_Palette()
-		if c := palette.ColorWithCr(qt.QPalette__Window).NameWithFormat(qt.QColor__HexRgb); c != "#2d2d2d" {
+		if c := qtgui.QGuiApplicationPalette().Color(qtgui.QPaletteWindow).Name(); c != "#2d2d2d" {
 			t.Errorf("window colour = %s, want the dark theme's", c)
 		}
 	})
@@ -679,10 +696,10 @@ func TestAnimation(t *testing.T) {
 		f.memory = stats.Memory{Total: 100, Used: 10}
 		f.network = map[string]stats.NetCounters{"eth0": {}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.Start()
 		defer func() {
-			for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer, tw.frames} {
+			for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer, tw.frames} {
 				timer.Stop()
 			}
 		}()
@@ -691,7 +708,7 @@ func TestAnimation(t *testing.T) {
 		// moves.
 		g := tw.cpu.graph
 		g.Resize(600, 200)
-		if want := time.Minute / time.Duration(600*g.DevicePixelRatioF()); g.pixelTime() != want {
+		if want := time.Minute / time.Duration(600*g.AsQPaintDevice().DevicePixelRatioF()); g.pixelTime() != want {
 			t.Errorf("pixel time = %v, want %v", g.pixelTime(), want)
 		}
 		fastest := maxFrame
@@ -747,7 +764,7 @@ func TestAnimation(t *testing.T) {
 
 func TestEditSettings(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		d := tw.editSettings()
 		if !d.IsVisible() {
 			t.Error("the settings are not shown")
@@ -789,19 +806,16 @@ func TestSortedKeys(t *testing.T) {
 }
 
 func TestApplyTheme(t *testing.T) {
-	t.Cleanup(func() { mainthread.Wait(func() { applyTheme("") }) })
-	mainthread.Wait(func() {
+	t.Cleanup(func() { qutetest.Run(t, func() { applyTheme("") }) })
+	qutetest.Run(t, func() {
 		window := func() string {
-			// The palette is a copy, which its finalizer frees.
-			p := qt.QGuiApplication_Palette()
-			defer runtime.KeepAlive(p)
-			return p.ColorWithCr(qt.QPalette__Window).NameWithFormat(qt.QColor__HexRgb)
+			return qtgui.QGuiApplicationPalette().Color(qtgui.QPaletteWindow).Name()
 		}
 		applyTheme(settings.ThemeLight)
 		if c := window(); c != "#efefef" {
 			t.Errorf("light window = %s", c)
 		}
-		if s := qt.QApplication_Style().Name(); s != "fusion" {
+		if s := qtwidgets.QApplicationStyle().Name(); s != "fusion" {
 			t.Errorf("light style = %s", s)
 		}
 		applyTheme(settings.ThemeDark)
@@ -809,17 +823,17 @@ func TestApplyTheme(t *testing.T) {
 			t.Errorf("dark window = %s", c)
 		}
 		applyTheme("")
-		if s := qt.QApplication_Style().Name(); s != systemStyle {
+		if s := qtwidgets.QApplicationStyle().Name(); s != systemStyle {
 			t.Errorf("system style = %s, want %s", s, systemStyle)
 		}
 	})
 }
 
 func TestMakePalette(t *testing.T) {
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		p := makePalette(darkColours)
 		defer p.Delete()
-		if c := p.Color(qt.QPalette__Disabled, qt.QPalette__Text).NameWithFormat(qt.QColor__HexRgb); c != "#7a7a7a" {
+		if c := p.GroupColor(qtgui.QPaletteDisabled, qtgui.QPaletteText).Name(); c != "#7a7a7a" {
 			t.Errorf("disabled text = %s", c)
 		}
 	})
@@ -837,7 +851,7 @@ func TestLegendColourSetters(t *testing.T) {
 		f.memory = stats.Memory{Total: 100, Used: 10}
 		f.network = map[string]stats.NetCounters{"eth0": {}}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		tw.sampleMemory()
 		tw.sampleNetwork()
@@ -863,7 +877,7 @@ func TestLegendColourSetters(t *testing.T) {
 			t.Errorf("%s colours = %+v", name, c)
 		}
 	}
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		if tw.cpu.total.entries[0].colour != "#444444" || tw.network.legend.entries[0].colour != "#333333" {
 			t.Error("the legends do not show the colours set")
 		}
@@ -872,7 +886,7 @@ func TestLegendColourSetters(t *testing.T) {
 
 func TestNetworkTitles(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		if tw.network.received.title != "Download" || tw.network.sent.title != "Upload" {
 			t.Error("the network graphs are not titled Download and Upload")
 		}
@@ -884,16 +898,16 @@ func TestNetworkTitles(t *testing.T) {
 
 func TestSettingsAction(t *testing.T) {
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
-		var action *qt.QAction
+	qutetest.Run(t, func() {
+		var action *qtgui.QAction
 		for _, a := range tw.file.Actions() {
 			if a.Text() == "&Settings…" {
 				action = a
 			}
 		}
 		action.Trigger()
-		var dialog *qt.QWidget
-		for _, w := range qt.QApplication_TopLevelWidgets() {
+		var dialog *qtwidgets.QWidget
+		for _, w := range qtwidgets.QApplicationTopLevelWidgets() {
 			if w.WindowTitle() == "Settings" && w.IsVisible() {
 				dialog = w
 			}
@@ -913,7 +927,7 @@ func TestSaveConfigFails(t *testing.T) {
 	}
 	stderr := os.Stderr
 	os.Stderr = w
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		// The settings cannot be saved in a folder that is not there.
 		tw.Window.path = filepath.Join(t.TempDir(), "missing", "settings.json")
 		tw.saveConfig()
@@ -928,9 +942,9 @@ func TestSaveConfigFails(t *testing.T) {
 
 func TestStartThemedNotMaximised(t *testing.T) {
 	tw := newTestWindow(t, func(s *settings.Settings) { s.Theme = settings.ThemeDark })
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		// A theme the settings choose is in effect from the start.
-		if style := qt.QApplication_Style().Name(); !strings.EqualFold(style, "fusion") {
+		if style := qtwidgets.QApplicationStyle().Name(); !strings.EqualFold(style, "fusion") {
 			t.Errorf("style = %q, want Fusion", style)
 		}
 		tw.Hide()
@@ -938,7 +952,7 @@ func TestStartThemedNotMaximised(t *testing.T) {
 		if !tw.IsVisible() || tw.IsMaximized() {
 			t.Error("the window is not shown as it was, unmaximised")
 		}
-		for _, timer := range []*qt.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
+		for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
 			timer.Stop()
 		}
 	})
@@ -950,7 +964,7 @@ func TestMemoryScaleFitsSwap(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.memory = stats.Memory{Total: 2 * gib, Used: gib, SwapTotal: 8 * gib, SwapUsed: 3 * gib}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleMemory()
 		// More swap in use than there is memory raises the scale to it.
 		if top := tw.memory.graph.top; top != 3*gib {
@@ -969,7 +983,7 @@ func TestMemoryScale(t *testing.T) {
 		// What a computer sold with 32 GB says it has.
 		f.memory = stats.Memory{Total: 33583353856, Used: 15.5e9}
 	})
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleMemory()
 		config := tw.config
 		config.SizeUnits = settings.SizeDecimal
@@ -1032,7 +1046,7 @@ func TestSettingsListEveryCore(t *testing.T) {
 	for _, cores := range []int{1, 4, 16, 64} {
 		tw := newTestWindow(t, nil)
 		tw.source.set(func(f *fakeSource) { f.cpu = stats.CPU{Cores: make([]stats.CPUTimes, cores)} })
-		mainthread.Wait(func() {
+		qutetest.Run(t, func() {
 			tw.sampleCPU()
 			d := tw.editSettings()
 			defer d.Reject()
@@ -1059,11 +1073,11 @@ func TestSettingsKeepUnlistedCores(t *testing.T) {
 	current := settings.Defaults()
 	current.Colours.Cores = []string{"#111111", "", "", "", "#555555", "", "#777777"}
 	var got *settings.Settings
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		// A computer with four cores, of settings from one with more.
 		d := newSettingsDialog(nil, current, 4, nil, 16, func(s settings.Settings) { got = &s })
 		d.cores[0].set("#aaaaaa")
-		d.box.Button(qt.QDialogButtonBox__Ok).Click()
+		d.box.Button(qtwidgets.QDialogButtonBoxOk).Click()
 	})
 	want := []string{"#aaaaaa", "", "", "", "#555555", "", "#777777"}
 	if got == nil || !slices.Equal(got.Colours.Cores, want) {
@@ -1076,7 +1090,7 @@ func TestCPUCoresChange(t *testing.T) {
 	tw.source.set(func(f *fakeSource) {
 		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 10, Idle: 10}, Cores: []stats.CPUTimes{{Busy: 10, Idle: 10}}}
 	})
-	mainthread.Wait(tw.sampleCPU)
+	qutetest.Run(t, tw.sampleCPU)
 
 	// A processor brought online is drawn across the graph at 0 from its
 	// first reading, as those there from the start were.
@@ -1084,7 +1098,7 @@ func TestCPUCoresChange(t *testing.T) {
 		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 30, Idle: 20}, Cores: []stats.CPUTimes{{Busy: 20, Idle: 20}, {Busy: 10, Idle: 0}}}
 	})
 	tw.advance(2 * time.Second)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		if len(tw.cpu.cores) != 2 {
 			t.Fatalf("%d cores, want 2", len(tw.cpu.cores))
@@ -1103,7 +1117,7 @@ func TestCPUCoresChange(t *testing.T) {
 		f.cpu = stats.CPU{All: stats.CPUTimes{Busy: 40, Idle: 30}, Cores: []stats.CPUTimes{{Busy: 30, Idle: 30}}}
 	})
 	tw.advance(2 * time.Second)
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.sampleCPU()
 		if len(tw.cpu.legend.entries) != 2 {
 			t.Fatalf("legend = %+v, want both cores", tw.cpu.legend.entries)
@@ -1120,7 +1134,7 @@ func TestCPUCoresChange(t *testing.T) {
 func TestSaveSettingsMaximised(t *testing.T) {
 	tw := newTestWindow(t, func(s *settings.Settings) { s.Width, s.Height = 500, 400 })
 	maximised := false
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		tw.Resize(500, 400)
 		tw.ShowMaximized()
 		maximised = tw.IsMaximized()
@@ -1138,11 +1152,11 @@ func TestSaveSettingsMaximised(t *testing.T) {
 }
 
 func TestSmallFont(t *testing.T) {
-	mainthread.Wait(func() {
-		w := qt.NewQWidget2()
+	qutetest.Run(t, func() {
+		w := qtwidgets.NewQWidget(nil)
 		defer w.Delete()
 		for size, want := range map[float64]float64{8: 7, 12: 9, 20: 15} {
-			f := qt.NewQFont()
+			f := qtgui.NewQFont()
 			f.SetPointSizeF(size)
 			w.SetFont(f)
 			f.Delete()
@@ -1156,11 +1170,11 @@ func TestSmallFont(t *testing.T) {
 }
 
 // labels returns every label under the object, however deep.
-func labels(o *qt.QObject) []*qt.QLabel {
-	var found []*qt.QLabel
-	for _, child := range o.Children() {
-		if child.Inherits("QLabel") {
-			found = append(found, qt.UnsafeNewQLabel(child.UnsafePointer()))
+func labels(o qtcore.QObjectLike) []*qtwidgets.QLabel {
+	var found []*qtwidgets.QLabel
+	for _, child := range o.AsQObject().Children() {
+		if label := qtwidgets.QLabelCast(child); label != nil {
+			found = append(found, label)
 		}
 		found = append(found, labels(child)...)
 	}
@@ -1169,11 +1183,11 @@ func labels(o *qt.QObject) []*qt.QLabel {
 
 func TestSettingsIntervalNote(t *testing.T) {
 	// The note on the intervals says what range the boxes take.
-	mainthread.Wait(func() {
+	qutetest.Run(t, func() {
 		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, 16, func(settings.Settings) {})
 		defer d.Reject()
 		found := false
-		for _, label := range labels(d.QObject) {
+		for _, label := range labels(d) {
 			if strings.HasPrefix(label.Text(), "How often each is read") {
 				found = true
 				if !strings.Contains(label.Text(), "a tenth of a second to an hour") {
@@ -1193,8 +1207,8 @@ func TestSettingsIntervalNote(t *testing.T) {
 func TestActivate(t *testing.T) {
 	t.Setenv("XDG_ACTIVATION_TOKEN", "")
 	tw := newTestWindow(t, nil)
-	mainthread.Wait(func() {
-		tw.SetWindowState(qt.WindowMaximized | qt.WindowMinimized)
+	qutetest.Run(t, func() {
+		tw.SetWindowState(qtcore.WindowMaximized | qtcore.WindowMinimized)
 		tw.Show()
 		tw.Activate("token-1")
 		if tw.IsMinimized() || !tw.IsMaximized() || !tw.IsVisible() {

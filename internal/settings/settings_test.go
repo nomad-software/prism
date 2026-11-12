@@ -426,11 +426,9 @@ func TestClone(t *testing.T) {
 }
 
 func TestPrepared(t *testing.T) {
-	// The configuration of programs is kept in XDG_CONFIG_HOME on Linux, and
-	// in the home folder on macOS.
+	// The configuration of programs is kept in XDG_CONFIG_HOME.
 	config := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", config)
-	t.Setenv("HOME", config)
 	path, err := Prepared()
 	if err != nil {
 		t.Fatal(err)

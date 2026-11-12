@@ -3,7 +3,7 @@
 Graphs of the use of the processors, memory and swap, and network adapters,
 and a tree of the processes that are running.
 It is written in Go with Qt 6, through the
-[miqt](https://github.com/mappu/miqt) bindings, and runs on Linux and macOS.
+[qute](https://github.com/nomad-software/qute) bindings, and runs on Linux.
 
 ![Prism](docs/screenshot.png)
 
@@ -20,7 +20,7 @@ It is written in Go with Qt 6, through the
   to end it, stop it or go on.
 - **It asks for nothing.** No root, no daemon, no service, no account and
   nothing sent anywhere: it only reads what the kernel already says, in
-  `/proc` and `/sys` on Linux and through the system's own calls on macOS.
+  `/proc` and `/sys`.
 - **It is light.** One program, one window, and one copy running at a time;
   each statistic is read at an interval of its own, from a tenth of a second
   to an hour, so it costs as little as wanted; and the graphs are drawn only
@@ -31,13 +31,12 @@ It is written in Go with Qt 6, through the
   well on either, every one of which can be chosen. It remembers its size,
   its settings and how the processes were last shown.
 - **It is easy to have.** One AppImage file that runs on most Linux
-  systems without installing anything, or an app for Macs with Apple
-  Silicon; free software, under the GPLv3.
+  systems without installing anything; free software, under the GPLv3.
 
 ## What it shows
 
 The window has two tabs: **Resources**, with the graphs, and **Processes**;
-Ctrl+1 and Ctrl+2 (⌘1 and ⌘2 on macOS) switch between them.
+Ctrl+1 and Ctrl+2 switch between them.
 
 - **CPU**: how busy each logical processor is, a line for each, or one line
   for all of them together (Settings > General > Display).
@@ -88,9 +87,8 @@ only what is new of them, unless the scale, size or colours change.
   top counts it, a percentage of one processor, so more than 100% for one
   running on several, with a heading that says how many there are, as
   "CPU (8 cores)"; Cores Used, how many processors' worth of time that is,
-  2.5 for 250%; and Memory, what is resident on Linux and the footprint, as
-  Activity Monitor counts it, on macOS, "—" for the kernel's own threads,
-  which have none of their own to count. The PID column is as wide as the
+  2.5 for 250%; and Memory, what is resident, "—" for the kernel's own
+  threads, which have none of their own to count. The PID column is as wide as the
   largest PID, and the others share the rest of the width, the name two fifths of it.
 - **Sorting**: click a heading to sort by it, and again to reverse it. It
   starts with the busiest first, and keeps the order chosen for next time.
@@ -113,28 +111,18 @@ only what is new of them, unless the scale, size or colours change.
 
 ### Where the statistics come from
 
-- **Linux**: `/proc/stat`, `/proc/meminfo`,
-  `/sys/class/net/*/statistics/{rx,tx}_bytes`, and for each process
-  `/proc/<pid>/stat`, `/proc/<pid>/statm` and `/proc/<pid>/status`, with
-  `/proc/<pid>/cmdline` for the full name of one whose name the kernel cuts
-  short at 15 characters, and nothing else.
-- **macOS**: the Mach kernel's processor and memory statistics
-  (`host_processor_info`, `host_statistics64`), `sysctl` for the size of
-  memory and the use of swap, and the 64 bit counters of the network
-  adapters (`NET_RT_IFLIST2`). Memory in use is counted as Activity Monitor
-  counts it: memory of programs, wired, and compressed. Processes are listed
-  by `sysctl`, with their time and memory from `proc_pid_rusage`, which
-  macOS only gives of other users' processes to root; theirs are shown as
-  "—".
+`/proc/stat`, `/proc/meminfo`, `/sys/class/net/*/statistics/{rx,tx}_bytes`,
+and for each process `/proc/<pid>/stat`, `/proc/<pid>/statm` and
+`/proc/<pid>/status`, with `/proc/<pid>/cmdline` for the full name of one
+whose name the kernel cuts short at 15 characters, and nothing else.
 
 ## Settings
 
 The menu bar has **File** (Settings, Quit with Ctrl+Q) and **Help** (About with
 Ctrl+I: the version of Prism, the version of Qt and the licences of what Prism
 is built with).
-On macOS these are in the application's menu.
 
-**File > Settings** (Ctrl+, or ⌘, on macOS) has:
+**File > Settings** (Ctrl+,) has:
 
 - **General**: the update interval of each statistic and of the processes,
   in seconds to a tenth of a second, from 0.1 to 3600 (by default 1 for the
@@ -166,8 +154,7 @@ adapter and giving them their colours afresh.
 
 The settings, and the size of the window, are kept in
 `prism/settings.json` where the system keeps the configuration of programs:
-`~/.config` on Linux (or `$XDG_CONFIG_HOME`), and
-`~/Library/Application Support` on macOS.
+`~/.config` (or `$XDG_CONFIG_HOME`).
 
 ## One copy at a time
 
@@ -181,7 +168,7 @@ folder.
 
 ## Desktop entry
 
-On Linux, every time it starts, Prism adds itself to the desktop's
+Every time it starts, Prism adds itself to the desktop's
 applications, so that it can be started from the menu and kept in a dock or
 sidebar: it writes `~/.local/share/applications/prism.desktop` and its icon
 to `~/.local/share/icons/hicolor/128x128/apps/prism.png` (or under
@@ -192,16 +179,16 @@ clears it (on KDE, so does deleting `~/.cache/icon-cache.kcache`).
 
 ## Requirements
 
-Prism runs on Linux and macOS, and on no other system. It is developed and
-tested on Linux; there is a release for macOS on Apple Silicon (see
-[macOS app](#macos-app)).
+Prism runs on Linux, and on no other system.
 
 Building needs:
 
 - Go 1.27.1 or later
-- A C++ compiler (GCC or Clang)
+- A C++ compiler (GCC or Clang) with C++17
 - `pkg-config`
-- The Qt 6 development files of Qt Widgets
+- The development files of Qt Widgets, Qt 6.12 or newer: the bindings,
+  qute, are made from Qt 6.12 and use its API, so an older Qt does not
+  compile them. The tests also use Qt Test, which comes with it.
 
 Install them with your distribution's package manager:
 
@@ -217,13 +204,13 @@ sudo dnf install golang gcc-c++ pkgconf-pkg-config qt6-qtbase-devel
 
 # openSUSE
 sudo zypper install go gcc-c++ pkgconf-pkg-config qt6-base-devel
-
-# macOS, with Homebrew and the Xcode Command Line Tools
-brew install go pkgconf qtbase
 ```
 
 If your distribution's Go is older than 1.27.1, install Go from
-[go.dev/dl](https://go.dev/dl/) instead.
+[go.dev/dl](https://go.dev/dl/) instead. If its Qt is older than 6.12,
+install Qt's own build of Qt 6.12 or newer (with the Qt online installer, or
+`aqtinstall` as the AppImage workflow does), and point `pkg-config` at it:
+`export PKG_CONFIG_PATH=<qt>/gcc_64/lib/pkgconfig`.
 
 Check that Qt can be found with:
 
@@ -231,41 +218,51 @@ Check that Qt can be found with:
 pkg-config --modversion Qt6Widgets
 ```
 
-This should print a version starting with 6.
+This should print 6.12 or later.
 
-Running a built binary on another machine only needs the Qt 6 runtime
-libraries (`qt6-base` on Arch, `libqt6widgets6` on Debian and Ubuntu,
+Running a built binary on another machine only needs the Qt 6.12 (or newer)
+runtime libraries (`qt6-base` on Arch, `libqt6widgets6` on Debian and Ubuntu,
 `qt6-qtbase` on Fedora, `libQt6Widgets6` on openSUSE). The icons are
 Prism's own, built in, so no icon theme is needed.
 
 ## Building
 
-The first build compiles the whole Qt binding and takes several minutes,
-printing a lot of compiler warnings from the Qt headers which can be ignored.
-Later builds use the Go build cache and take a few seconds.
+The first build compiles the C++ side of the Qt bindings and takes a few
+minutes. Later builds use the Go build cache and take a few seconds.
 
 ```sh
 make build      # builds ./prism
 make run        # builds and runs it
 make test       # runs the tests
+make bench      # times drawing the graphs and refreshing the processes
 make vet        # runs go vet
 make screenshot # draws docs/screenshot.png
-make icons      # draws the macOS icon, after the program's icon changes
-make appimage   # builds the AppImage (see below)
-make macos      # builds the macOS app, on a Mac (see below)
-make clean      # removes ./prism and build/
+make appimage   # builds ./Prism-<version>-x86_64.AppImage (see below)
+make clean      # removes them, and the AppImage's build folder
 ```
+
+Only what is made is put in the project: `./prism`, and the AppImage. Go
+compiles in a folder of its own in the temporary folder, and the AppImage is
+put together in `$TMPDIR/prism-build` (or `/tmp/prism-build`). Both results
+are ignored by git.
+
+`make bench` runs the benchmarks in `internal/ui/bench_test.go`: a frame of
+the graphs between readings, a reading of every statistic with the graphs
+and legends drawn, a refresh of 600 processes as a list and as a tree, and the
+whole window drawn, each with a window of 16 processors and 4 adapters.
 
 The about box shows the version Go records from git when it builds: the tag,
 or the last tag for a build after it. A build Go records no version for, as
 one made outside a git checkout, shows "dev".
 
-Build after every change, and lint with `staticcheck ./...` and
-`deadcode -test ./...`, which must both be clean.
+Build after every change, and lint with `staticcheck ./...`,
+`deadcode -test ./...` and qute's own `qute vet ./...` (ownership and
+threading mistakes; `go install github.com/nomad-software/qute/cmd/qute@latest`),
+which must all be clean.
 
 Dependencies come from their upstream repositories only: the Qt bindings are
-`github.com/mappu/miqt`, and `go.mod` has no `replace` directives or local
-paths.
+`github.com/nomad-software/qute`, and `go.mod` has no `replace` directives or
+local paths.
 
 ## AppImage
 
@@ -274,7 +271,7 @@ file with Qt inside it, which runs without installing anything. Make it
 executable and run it.
 
 It is built by a GitHub workflow (`.github/workflows/appimage.yml`), which
-runs `packaging/appimage.sh` on Ubuntu 22.04 with Qt's own build of Qt 6.9:
+runs `packaging/appimage.sh` on Ubuntu 22.04 with Qt's own build of Qt 6.12:
 
 - Pushing a tag starting with `v` builds it and attaches it to a release of
   that name: `git tag v1.0.0 && git push origin v1.0.0`.
@@ -291,37 +288,14 @@ Debian 12, Fedora 36 and anything newer, or rolling distributions such as
 CachyOS and Arch.
 
 `make appimage` runs the same script locally, but an AppImage built on a newer
-system only runs on systems at least as new.
-
-## macOS app
-
-Releases for macOS are a disk image, `Prism-*-arm64.dmg`, for Macs
-with Apple Silicon. Open it and drag Prism into Applications.
-
-The app is not signed with an Apple Developer ID or notarised by Apple, so
-the first time it is opened macOS says that it cannot check it for malicious
-software and will not open it. Either:
-
-- Open System Settings > Privacy & Security, where Prism is named
-  beneath Security, and choose Open Anyway, or
-- take away the mark macOS gives what is downloaded, in Terminal:
-
-  ```sh
-  xattr -dr com.apple.quarantine "/Applications/Prism.app"
-  ```
-
-Either is only needed once.
-
-It is built by a GitHub workflow (`.github/workflows/macos.yml`), which runs
-`packaging/macos.sh` on a Mac with Apple Silicon and Homebrew's Qt, when a
-`v` tag is pushed, as the AppImage is, or by hand from the Actions tab (macOS
-> Run workflow). `make macos` runs the same script on a Mac.
+system only runs on systems at least as new. It builds in `/tmp/prism-build`
+(`BUILD_DIR` to choose another), keeping the tools it downloads there for the
+next time, and puts only the AppImage in the root of the project.
 
 ## Layout
 
-- `internal/stats` reads the counters of the system and its processes, and
-  sends processes signals: `/proc` and `/sys` on Linux, Mach, `sysctl` and
-  `libproc` on macOS.
+- `internal/stats` reads the counters of the system and its processes, from
+  `/proc` and `/sys`, and sends processes signals.
 - `internal/usage` works out from one reading to the next how busy the
   processors and processes were and how fast the adapters received and sent.
 - `internal/history` keeps the values of each line of a graph.
@@ -333,7 +307,5 @@ It is built by a GitHub workflow (`.github/workflows/macos.yml`), which runs
 - `internal/appicon` holds the icon, a glass prism, built into the program.
 - `internal/ui` is the window and its tabs, the graphs and legends it paints,
   the table of processes, the settings dialog, the about box and the themes.
-- `packaging` has the scripts and files that make the AppImage and the macOS
-  app.
-- `.github/workflows` has `appimage.yml` and `macos.yml` (`v` tags, or by
-  hand).
+- `packaging` has the script and files that make the AppImage.
+- `.github/workflows` has `appimage.yml` (`v` tags, or by hand).

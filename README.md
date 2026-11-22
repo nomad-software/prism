@@ -251,9 +251,10 @@ the graphs between readings, a reading of every statistic with the graphs
 and legends drawn, a refresh of 600 processes as a list and as a tree, and the
 whole window drawn, each with a window of 16 processors and 4 adapters.
 
-The about box shows the version Go records from git when it builds: the tag,
-or the last tag for a build after it. A build Go records no version for, as
-one made outside a git checkout, shows "dev".
+The about box shows the git tag the build's commit is, or the last tag before
+it, which `make build` and `make appimage` give it (`git describe --tags
+--abbrev=0`). A build made otherwise, as with a plain `go build` or outside a
+git checkout, shows "dev".
 
 Build after every change, and lint with `staticcheck ./...`,
 `deadcode -test ./...` and qute's own `qute vet ./...` (ownership and

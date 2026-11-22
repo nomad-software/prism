@@ -75,10 +75,14 @@ jobs:
           PKG_CONFIG_PATH="$QT_ROOT/lib/pkgconfig" pkg-config --modversion --cflags --libs Qt6Widgets
 
       - uses: actions/checkout@v4
+        with:
+          # Every commit and tag, so that the script can find the tag the
+          # build is or follows, for the about box.
+          fetch-depth: 0
 
       # In a container the files belong to another user than the one that
       # runs the steps, which git refuses to work with unless told to, and
-      # Go asks git for the version it builds.
+      # the script asks git for the tag the build is or follows.
       - name: Let git read the repository
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 

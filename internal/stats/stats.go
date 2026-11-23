@@ -61,7 +61,7 @@ type Process struct {
 	PID int
 	// PPID is the PID of the process that started it, or 0 if none did.
 	PPID int
-	// UID is the user it runs for, its real user ID.
+	// UID is the user it runs as, its effective user ID.
 	UID  int
 	Name string
 	// Start is when it started, in the system's own units, which tells it
@@ -115,7 +115,8 @@ type Source interface {
 	// Processes returns every process that could be read, in no order.
 	Processes() ([]Process, error)
 	// Signal sends the signal of the number to the process, if it is still
-	// the one read, and not another given its PID since; ErrEnded if not.
+	// the one read, and not another given its PID since; ErrEnded if not,
+	// and ErrFirst for the system's first process.
 	Signal(p Process, number int) error
 }
 

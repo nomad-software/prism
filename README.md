@@ -23,7 +23,8 @@ It is written in Go with Qt 6, through the
   `/proc` and `/sys`.
 - **It is light.** One program, one window, and one copy running at a time;
   each statistic is read at an interval of its own, from a tenth of a second
-  to an hour, so it costs as little as wanted; and the graphs are drawn only
+  to an hour, so it costs as little as wanted, and away from the window, so
+  that a slow reading never keeps it from answering; and the graphs are drawn only
   as often as their lines move by a pixel, and not at all while they are
   out of sight.
 - **It looks right on the desktop.** A native Qt program that follows the
@@ -107,14 +108,16 @@ only what is new of them, unless the scale, size or colours change.
 - **Signals**: choose a process, then a signal (SIGKILL unless another is
   chosen), and **Send Signal** sends it; the status bar says whether it was
   sent. A process that has ended in the meantime is not sent it, even if its
-  PID has been given to another.
+  PID has been given to another, and the system's first process (PID 1,
+  init or systemd) is never sent one, whoever runs Prism.
 
 ### Where the statistics come from
 
 `/proc/stat`, `/proc/meminfo`, `/sys/class/net/*/statistics/{rx,tx}_bytes`,
-and for each process `/proc/<pid>/stat`, `/proc/<pid>/statm` and
-`/proc/<pid>/status`, with `/proc/<pid>/cmdline` for the full name of one
-whose name the kernel cuts short at 15 characters, and nothing else.
+and for each process `/proc/<pid>/stat` and `/proc/<pid>/statm`, the owner
+of its folder `/proc/<pid>` (the user it runs as, by which it is a person's
+or the system's), and `/proc/<pid>/cmdline` for the full name of one whose
+name the kernel cuts short at 15 characters, and nothing else.
 
 ## Settings
 
@@ -136,13 +139,17 @@ is built with).
   shown in the network graphs and legend. An adapter that is not ticked is
   still read, so its lines are whole when it is shown again, and it keeps its
   choice when it goes away, for when it comes back. Each can be given an
-  alias, which the legend shows in place of its name.
+  alias, which the legend shows in place of its name. An adapter that has
+  not been seen for 30 days is forgotten, unless it is hidden or has an
+  alias, so that those of containers and tunnels, which come and go under
+  ever new names, do not gather here.
 - **User interface**: the theme, light, dark, or following the system; and a
   table of the colours of the grid, memory, swap, all processors together,
   each processor, and each network adapter that has been seen, under a
   heading for each. Click a swatch to choose
   another colour; colours can be translucent. An adapter is given a colour
-  when it is first seen, and keeps it when it goes away. **Use Default
+  when it is first seen, and keeps it when it goes away, for 30 days (for
+  good if it is hidden or has an alias). **Use Default
   Colours** puts back the colours alone. The default colours are the eight
   accents of Solarized, which read well on light and dark alike, on a grid of
   the warm grey of Ubuntu's Ambiance. Each processor's colour is across the
@@ -250,6 +257,8 @@ are ignored by git.
 the graphs between readings, a reading of every statistic with the graphs
 and legends drawn, a refresh of 600 processes as a list and as a tree, and the
 whole window drawn, each with a window of 16 processors and 4 adapters.
+`go test -run '^$' -bench . ./internal/stats/` times a reading of the
+processes of the system it is run on.
 
 The about box shows the git tag the build's commit is, or the last tag before
 it, which `make build` and `make appimage` give it (`git describe --tags

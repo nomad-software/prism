@@ -10,9 +10,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/nomad-software/qute"
 	"github.com/nomad-software/qute/qtcore"
 	"github.com/nomad-software/qute/qtgui"
 	"github.com/nomad-software/qute/qtwidgets"
@@ -44,6 +46,10 @@ type fakeSource struct {
 	// to send, as "pid number".
 	signalErr error
 	signalled []string
+	// held keeps Processes from returning until it is closed, if it is not
+	// nil, and reads counts the times it was asked.
+	held  chan struct{}
+	reads atomic.Int32
 }
 
 func (f *fakeSource) CPU() (stats.CPU, error) {
@@ -65,6 +71,13 @@ func (f *fakeSource) Network() (map[string]stats.NetCounters, error) {
 }
 
 func (f *fakeSource) Processes() ([]stats.Process, error) {
+	f.reads.Add(1)
+	f.Lock()
+	held := f.held
+	f.Unlock()
+	if held != nil {
+		<-held
+	}
 	f.Lock()
 	defer f.Unlock()
 	return slices.Clone(f.procs), f.err
@@ -1224,4 +1237,110 @@ func TestActivate(t *testing.T) {
 			t.Errorf("token = %q after none", got)
 		}
 	})
+}
+
+// TestBackgroundReading has the timers' readings made away from the GUI
+// thread: one that is stuck does not keep the window from answering, nor is
+// another started behind it, and what it read is shown when it comes back.
+func TestBackgroundReading(t *testing.T) {
+	tw := newTestWindow(t, showAll)
+	held := make(chan struct{})
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{{PID: 1, Name: "a"}, {PID: 2, Name: "b"}}
+		f.held = held
+	})
+	read := func() {
+		background(tw.Window, &tw.processes.section, tw.source.Processes, tw.takeProcesses)
+	}
+	// This returns while the reading is still being made.
+	qutetest.Run(t, func() {
+		read()
+		read()
+		if !tw.processes.reading {
+			t.Error("the processes are not said to be being read")
+		}
+		if n := tw.processes.tree.TopLevelItemCount(); n != 0 {
+			t.Errorf("%d processes listed before they were read", n)
+		}
+	})
+	close(held)
+	qutetest.Run(t, func() {
+		listed := func() bool { return tw.processes.tree.TopLevelItemCount() == 2 }
+		if !qutetest.WaitFor(listed, 5*time.Second) {
+			t.Fatal("the processes read in the background were not listed")
+		}
+		if tw.processes.reading {
+			t.Error("the processes are still said to be being read")
+		}
+	})
+	if n := tw.source.reads.Load(); n != 1 {
+		t.Errorf("the processes were read %d times, want once", n)
+	}
+
+	// It can be read again once the last reading is back, and what went
+	// wrong is said as it is of a reading made on the GUI thread.
+	tw.source.set(func(f *fakeSource) { f.err = errors.New("no /proc") })
+	qutetest.Run(t, func() {
+		read()
+		said := func() bool { return !tw.processes.errors.IsHidden() }
+		if !qutetest.WaitFor(said, 5*time.Second) {
+			t.Error("what went wrong reading in the background was not said")
+		}
+	})
+}
+
+// TestBackgroundReadingDropped has a reading that comes back to a window
+// that has closed dropped.
+func TestBackgroundReadingDropped(t *testing.T) {
+	tw := newTestWindow(t, showAll)
+	held := make(chan struct{})
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{{PID: 1, Name: "a"}}
+		f.held = held
+	})
+	taken := false
+	qutetest.Run(t, func() {
+		background(tw.Window, &tw.processes.section, tw.source.Processes, func([]stats.Process, error) { taken = true })
+		tw.Close()
+	})
+	close(held)
+	qutetest.Run(t, func() {
+		// A function posted after the reading's own runs after it.
+		done := false
+		qute.Post(func() { done = true })
+		if !qutetest.WaitFor(func() bool { return done }, 5*time.Second) {
+			t.Fatal("the event loop did not run")
+		}
+		if taken {
+			t.Error("a reading was taken by a window that had closed")
+		}
+	})
+}
+
+// TestAdaptersForgotten has an adapter that has not been seen for longer
+// than the settings remember one forgotten, with its colour.
+func TestAdaptersForgotten(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	tw.source.set(func(f *fakeSource) {
+		f.network = map[string]stats.NetCounters{"eth0": {}, "veth1": {}}
+	})
+	qutetest.Run(t, tw.sampleNetwork)
+	saved := settings.Load(tw.path)
+	if len(saved.Colours.Network) != 2 || saved.AdapterSeen["veth1"] != start.Format(time.DateOnly) {
+		t.Fatalf("saved colours %v, seen %v", saved.Colours.Network, saved.AdapterSeen)
+	}
+	tw.source.set(func(f *fakeSource) {
+		f.network = map[string]stats.NetCounters{"eth0": {}}
+	})
+	tw.advance(settings.AdapterKept - time.Hour)
+	qutetest.Run(t, tw.sampleNetwork)
+	if saved := settings.Load(tw.path).Colours.Network; len(saved) != 2 {
+		t.Errorf("saved colours = %v, want veth1's kept", saved)
+	}
+	tw.advance(48 * time.Hour)
+	qutetest.Run(t, tw.sampleNetwork)
+	saved = settings.Load(tw.path)
+	if _, kept := saved.Colours.Network["veth1"]; kept || len(saved.Colours.Network) != 1 || len(saved.AdapterSeen) != 1 {
+		t.Errorf("saved colours %v, seen %v, want only eth0's", saved.Colours.Network, saved.AdapterSeen)
+	}
 }

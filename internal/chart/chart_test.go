@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -113,6 +114,12 @@ func TestRateTop(t *testing.T) {
 		{1010 * k, 2000 * k},
 		{1.2 * m, 2 * m},
 		{90 * m, 100 * m},
+		// A rate that is not a number, or has no end, has the least scale,
+		// rather than one looked for without end.
+		{math.NaN(), k},
+		{math.Inf(1), k},
+		{math.Inf(-1), k},
+		{-5, k},
 	} {
 		if got := (Units{}).RateTop(c.largest); got != c.want {
 			t.Errorf("RateTop(%v) = %v, want %v", c.largest, got, c.want)

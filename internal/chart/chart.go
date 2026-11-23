@@ -142,11 +142,12 @@ func PercentLabels() []string {
 // second, for the largest rate it shows: the least of 1, 2 and 5 times a
 // power of ten of the unit the rate is written in that is no less than it,
 // and no less than 1 kilo of the units, so that a graph of an idle adapter
-// is not a scale of a few bytes.
+// is not a scale of a few bytes. A rate that is not a number, or is without
+// end, has that least scale too: no step is ever as large as either.
 func (u Units) RateTop(largest float64) float64 {
 	base, factor := u.base(), u.rateFactor()
 	largest *= factor
-	if largest <= base {
+	if largest <= base || math.IsNaN(largest) || math.IsInf(largest, 0) {
 		return base / factor
 	}
 	unit := 1.0

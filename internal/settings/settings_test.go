@@ -2,6 +2,7 @@ package settings
 
 import (
 	"fmt"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -585,5 +586,66 @@ func TestMemoryMaxOutOfRange(t *testing.T) {
 		if s.MemoryMax != want {
 			t.Errorf("MemoryMax %d is normalised to %d, want %d", value, s.MemoryMax, want)
 		}
+	}
+}
+
+func TestSeeAdapters(t *testing.T) {
+	now := time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
+	day := func(ago int) string { return now.AddDate(0, 0, -ago).Format(time.DateOnly) }
+	s := Defaults()
+	for _, name := range []string{"eth0", "veth1", "veth2", "docker0", "wg0", "old", "odd"} {
+		s.Colours.Adapter(name)
+	}
+	s.HiddenAdapters = []string{"docker0"}
+	s.AdapterAliases = map[string]string{"wg0": "Tunnel"}
+	s.AdapterSeen = map[string]string{
+		"eth0":    day(90),
+		"veth1":   day(31),
+		"veth2":   day(30),
+		"docker0": day(90),
+		"wg0":     day(90),
+		"odd":     "yesterday",
+		"stray":   day(1),
+	}
+	if !s.SeeAdapters([]string{"eth0", "new"}, now) {
+		t.Error("SeeAdapters said nothing changed")
+	}
+	// One that is there is seen today, however long ago it last was; one
+	// gone for longer than is kept is forgotten, unless it is hidden or has
+	// an alias; one without a day that can be read is given today's; and a
+	// day of one that is not remembered is dropped.
+	want := map[string]string{
+		"eth0":    day(0),
+		"new":     day(0),
+		"veth2":   day(30),
+		"docker0": day(90),
+		"wg0":     day(90),
+		"old":     day(0),
+		"odd":     day(0),
+	}
+	if !maps.Equal(s.AdapterSeen, want) {
+		t.Errorf("AdapterSeen = %v, want %v", s.AdapterSeen, want)
+	}
+	if _, kept := s.Colours.Network["veth1"]; kept {
+		t.Error("an adapter gone for longer than is kept still has its colour")
+	}
+	for _, name := range []string{"eth0", "veth2", "docker0", "wg0", "old", "odd"} {
+		if _, kept := s.Colours.Network[name]; !kept {
+			t.Errorf("%s lost its colour", name)
+		}
+	}
+	// Nothing changes on the same day, and the next day only the day of
+	// those there.
+	if s.SeeAdapters([]string{"eth0", "new"}, now.Add(time.Hour)) {
+		t.Error("SeeAdapters said something changed within the day")
+	}
+	if !s.SeeAdapters([]string{"eth0"}, now.AddDate(0, 0, 1)) || s.AdapterSeen["eth0"] != day(-1) {
+		t.Errorf("the next day eth0 was seen %s", s.AdapterSeen["eth0"])
+	}
+
+	// Settings that have never kept the days are given a place for them.
+	var empty Settings
+	if empty.SeeAdapters(nil, now) || empty.AdapterSeen == nil {
+		t.Errorf("SeeAdapters of no adapters = %v", empty.AdapterSeen)
 	}
 }

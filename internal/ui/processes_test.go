@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/nomad-software/qute"
 	"github.com/nomad-software/qute/qtcore"
@@ -845,4 +846,152 @@ func TestProcessesUnchosen(t *testing.T) {
 	if len(tw.source.signalled) != 0 {
 		t.Errorf("signalled %q", tw.source.signalled)
 	}
+}
+
+// TestProcessItemsKept has the items of the tree kept from one refresh to
+// the next, each showing the process now in its place, with only as many
+// made or deleted as there are more or fewer.
+func TestProcessItemsKept(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
+	})
+	addresses := func() []unsafe.Pointer {
+		var ptrs []unsafe.Pointer
+		all, _ := items(tw)
+		for _, item := range all {
+			ptrs = append(ptrs, item.Ptr())
+		}
+		return ptrs
+	}
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{{PID: 1, Name: "a"}, {PID: 2, Name: "b"}, {PID: 3, Name: "c"}}
+	})
+	var first []unsafe.Pointer
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		first = addresses()
+		chooseRow(tw, 1)
+	})
+	// Another process in the place of one that has ended is shown by the
+	// item that showed it, and is not chosen for that; one more is given an
+	// item of its own.
+	tw.advance(time.Second)
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{{PID: 1, Name: "a"}, {PID: 4, Name: "d"}, {PID: 5, Name: "e"}, {PID: 6, Name: "f"}}
+	})
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		now := addresses()
+		if len(now) != 4 || !slices.Equal(now[:3], first) {
+			t.Errorf("items = %v, want the first three to be %v", now, first)
+		}
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"a", "d", "e", "f"}) {
+			t.Errorf("names = %q", got)
+		}
+		if got := column(tw, colProcessPID); !slices.Equal(got, []string{"1", "4", "5", "6"}) {
+			t.Errorf("PIDs = %q", got)
+		}
+		if tw.processes.chosen != nil || chosenRow(tw) != -1 || tw.processes.tree.CurrentItem() != nil {
+			t.Errorf("chosen = %+v, row %d, after it ended", tw.processes.chosen, chosenRow(tw))
+		}
+		// The item of each row is the one its process is found by.
+		chooseRow(tw, 3)
+		if tw.processes.chosen == nil || tw.processes.chosen.PID != 6 {
+			t.Errorf("chosen = %+v, want 6", tw.processes.chosen)
+		}
+	})
+	// Those left over are deleted, and the process chosen is chosen where
+	// it is now.
+	tw.advance(time.Second)
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{{PID: 6, Name: "f"}}
+	})
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		if now := addresses(); len(now) != 1 || now[0] != first[0] {
+			t.Errorf("items = %v, want only %v", now, first[0])
+		}
+		if len(tw.processes.rows) != 1 || chosenRow(tw) != 0 || tw.processes.chosen.PID != 6 {
+			t.Errorf("rows = %v, chosen row %d", tw.processes.rows, chosenRow(tw))
+		}
+	})
+}
+
+// TestProcessBranchesKept has the tree keep its items as its branches
+// change, each branch folded or open as its process was left, not as the
+// item that shows it now was.
+func TestProcessBranchesKept(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessView = settings.ViewTree
+		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
+	})
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{
+			{PID: 1, Name: "a"}, {PID: 2, PPID: 1, Name: "b"}, {PID: 3, PPID: 2, Name: "c"},
+			{PID: 4, Name: "d"}, {PID: 5, PPID: 4, Name: "e"},
+		}
+	})
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		if got := depths(tw); !slices.Equal(got, []int{0, 1, 2, 0, 1}) {
+			t.Fatalf("depths = %v", got)
+		}
+		all, _ := items(tw)
+		for _, row := range []int{0, 1, 3} {
+			if !all[row].IsExpanded() {
+				t.Errorf("the branch of row %d is not open at first", row)
+			}
+		}
+		// The first branch is folded by hand.
+		all[0].SetExpanded(false)
+		if !tw.processes.folded[stats.ProcessKey{PID: 1}] {
+			t.Error("the branch folded was not kept")
+		}
+	})
+	// The first process ends: those it started are at the top, and the item
+	// that was folded shows one whose branch was never folded.
+	tw.advance(time.Second)
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{
+			{PID: 2, PPID: 1, Name: "b"}, {PID: 3, PPID: 2, Name: "c"},
+			{PID: 4, Name: "d"}, {PID: 5, PPID: 4, Name: "e"}, {PID: 6, PPID: 5, Name: "f"},
+		}
+	})
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"b", "c", "d", "e", "f"}) {
+			t.Errorf("names = %q", got)
+		}
+		if got := depths(tw); !slices.Equal(got, []int{0, 1, 0, 1, 2}) {
+			t.Errorf("depths = %v", got)
+		}
+		all, _ := items(tw)
+		for _, row := range []int{0, 2, 3} {
+			if !all[row].IsExpanded() {
+				t.Errorf("the branch of row %d is not open", row)
+			}
+		}
+		if len(tw.processes.folded) != 0 {
+			t.Errorf("folded = %v, want what ended forgotten", tw.processes.folded)
+		}
+		// A branch folded stays folded as the tree is refreshed.
+		all[2].SetExpanded(false)
+		tw.sampleProcesses()
+		all, _ = items(tw)
+		if all[2].IsExpanded() || !all[0].IsExpanded() {
+			t.Error("the branch folded did not stay folded alone")
+		}
+	})
+	// As a list, nothing is under anything.
+	qutetest.Run(t, func() {
+		tw.processes.view.choose(settings.ViewList)
+		if got := depths(tw); !slices.Equal(got, []int{0, 0, 0, 0, 0}) {
+			t.Errorf("depths as a list = %v", got)
+		}
+		if len(tw.processes.rows) != 5 {
+			t.Errorf("%d rows kept, want 5", len(tw.processes.rows))
+		}
+	})
 }

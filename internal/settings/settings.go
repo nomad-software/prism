@@ -143,6 +143,59 @@ type Settings struct {
 	// window, by the names of the adapters. An adapter without one is shown
 	// by its own name.
 	AdapterAliases map[string]string `json:"adapterAliases,omitempty"`
+
+	// AdapterSeen is the day each network adapter was last seen, by its
+	// name, as "2026-01-31", by which one that has not come back is
+	// forgotten. SeeAdapters keeps it.
+	AdapterSeen map[string]string `json:"adapterSeen,omitempty"`
+}
+
+// AdapterKept is how long a network adapter that has gone is remembered for,
+// with its colour, in case it comes back.
+const AdapterKept = 30 * 24 * time.Hour
+
+// SeeAdapters takes the names of the network adapters there are now, and
+// forgets those that have not been seen for longer than AdapterKept, so that
+// those that come and go under ever new names, as those of containers and
+// tunnels do, do not gather in the settings for ever. One that is hidden or
+// has an alias is never forgotten, as that was chosen for it. An adapter
+// from before the days were kept is taken to have been seen now. It says
+// whether anything changed, for the settings to be saved.
+func (s *Settings) SeeAdapters(present []string, now time.Time) bool {
+	today := now.Format(time.DateOnly)
+	if s.AdapterSeen == nil {
+		s.AdapterSeen = map[string]string{}
+	}
+	changed := false
+	for _, name := range present {
+		if s.AdapterSeen[name] != today {
+			s.AdapterSeen[name], changed = today, true
+		}
+	}
+	for name := range s.Colours.Network {
+		if slices.Contains(present, name) {
+			continue
+		}
+		seen, err := time.ParseInLocation(time.DateOnly, s.AdapterSeen[name], now.Location())
+		switch {
+		case err != nil:
+			s.AdapterSeen[name], changed = today, true
+		// Only the day it was seen is kept, so it is counted from the end
+		// of that day, and never forgotten early.
+		case now.Sub(seen.AddDate(0, 0, 1)) > AdapterKept && s.Shown(name) && s.AdapterAliases[name] == "":
+			delete(s.Colours.Network, name)
+			delete(s.AdapterSeen, name)
+			changed = true
+		}
+	}
+	// A day is only kept of an adapter that is remembered.
+	for name := range s.AdapterSeen {
+		if _, kept := s.Colours.Network[name]; !kept && !slices.Contains(present, name) {
+			delete(s.AdapterSeen, name)
+			changed = true
+		}
+	}
+	return changed
 }
 
 // Shown says whether the network adapter with the name is shown.

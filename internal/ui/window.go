@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nomad-software/qute"
 	"github.com/nomad-software/qute/qtcore"
 	"github.com/nomad-software/qute/qtgui"
 	"github.com/nomad-software/qute/qtwidgets"
@@ -73,6 +74,9 @@ type Window struct {
 	// frames draws the graphs again between readings, as often as their
 	// lines move along by a pixel, so that they move smoothly.
 	frames *qtcore.QTimer
+	// closed says that the window has been closed, after which a reading
+	// that was still being made is dropped.
+	closed bool
 }
 
 // section is the part of the window of one statistic: its heading, where
@@ -82,6 +86,33 @@ type section struct {
 	layout *qtwidgets.QVBoxLayout
 	errors *qtwidgets.QLabel
 	timer  *qtcore.QTimer
+	// reading says that it is being read, by background, until which it is
+	// not read again.
+	reading bool
+}
+
+// background reads a statistic of the section away from the GUI thread, and
+// has take, on the GUI thread, take what was read. The files of /proc are
+// the kernel's to write, and it can keep a reader waiting, as on a process
+// whose memory is locked; the window goes on drawing and answering while it
+// does. Nothing is read while the last reading is still being made, so that
+// readings do not pile up behind one that is stuck, and one that comes back
+// to a window that has closed is dropped.
+func background[T any](w *Window, s *section, read func() (T, error), take func(T, error)) {
+	if s.reading {
+		return
+	}
+	s.reading = true
+	go func() {
+		value, err := read()
+		qute.Post(func() {
+			if w.closed {
+				return
+			}
+			s.reading = false
+			take(value, err)
+		})
+	}()
 }
 
 // adapter is what is kept of a network adapter.
@@ -131,10 +162,20 @@ func NewWindow(path string, source stats.Source) *Window {
 	// the window bigger or smaller by.
 	w.StatusBar().SetSizeGripEnabled(true)
 
-	w.cpu.timer = w.newTimer(w.config.Intervals.CPU, w.sampleCPU)
-	w.memory.timer = w.newTimer(w.config.Intervals.Memory, w.sampleMemory)
-	w.network.timer = w.newTimer(w.config.Intervals.Network, w.sampleNetwork)
-	w.processes.timer = w.newTimer(w.config.Intervals.Processes, w.sampleProcesses)
+	// Each statistic is read away from the GUI thread, so that reading
+	// never keeps the window from drawing or answering.
+	w.cpu.timer = w.newTimer(w.config.Intervals.CPU, func() {
+		background(w, &w.cpu.section, w.source.CPU, w.takeCPU)
+	})
+	w.memory.timer = w.newTimer(w.config.Intervals.Memory, func() {
+		background(w, &w.memory.section, w.source.Memory, w.takeMemory)
+	})
+	w.network.timer = w.newTimer(w.config.Intervals.Network, func() {
+		background(w, &w.network.section, w.source.Network, w.takeNetwork)
+	})
+	w.processes.timer = w.newTimer(w.config.Intervals.Processes, func() {
+		background(w, &w.processes.section, w.source.Processes, w.takeProcesses)
+	})
 	w.frames = qtcore.NewQTimer(w)
 	// A frame is a few milliseconds, which a coarse timer is out by.
 	w.frames.SetTimerType(qtcore.PreciseTimer)
@@ -144,6 +185,7 @@ func NewWindow(path string, source stats.Source) *Window {
 
 // CloseEvent saves the settings, with the size of the window, as it closes.
 func (w *Window) CloseEvent(event *qtgui.QCloseEvent) {
+	w.closed = true
 	w.saveSettings()
 	w.Super().CloseEvent(event)
 }
@@ -158,7 +200,9 @@ func newTabPage() (*qtwidgets.QWidget, *qtwidgets.QVBoxLayout) {
 }
 
 // Start shows the window, takes the first reading of each statistic and of
-// the processes, and starts reading them at their intervals. Every graph is
+// the processes, and starts reading them at their intervals. The first is
+// read here and now, so that the window opens with it; those that follow are
+// read away from the GUI thread. Every graph is
 // drawn across from the first reading; the use of the processors and
 // processes and the rates of the network adapters are worked out from one
 // reading to the next, so they are 0, or not known, until the second.
@@ -348,7 +392,12 @@ func span(interval float64) time.Duration {
 // until its own second, the lines are 0, drawn across the whole graph from
 // the first.
 func (w *Window) sampleCPU() {
-	c, err := w.source.CPU()
+	w.takeCPU(w.source.CPU())
+}
+
+// takeCPU shows a reading of the times of the processors, or what went
+// wrong making it.
+func (w *Window) takeCPU(c stats.CPU, err error) {
 	w.cpu.report(err)
 	if err != nil {
 		return
@@ -429,7 +478,12 @@ func (w *Window) cpuPercent(s *history.Series) string {
 
 // sampleMemory reads the use of memory and swap, and shows it.
 func (w *Window) sampleMemory() {
-	m, err := w.source.Memory()
+	w.takeMemory(w.source.Memory())
+}
+
+// takeMemory shows a reading of the use of memory and swap, or what went
+// wrong making it.
+func (w *Window) takeMemory(m stats.Memory, err error) {
 	w.memory.report(err)
 	if err != nil {
 		return
@@ -511,9 +565,15 @@ func (w *Window) units() chart.Units {
 
 // sampleNetwork reads the counters of the network adapters, and shows how
 // fast each received and sent since they were last read. An adapter seen for
-// the first time is given a colour, which the settings keep.
+// the first time is given a colour, which the settings keep, until it has
+// been gone for longer than they remember one.
 func (w *Window) sampleNetwork() {
-	counters, err := w.source.Network()
+	w.takeNetwork(w.source.Network())
+}
+
+// takeNetwork shows a reading of the counters of the network adapters, or
+// what went wrong making it.
+func (w *Window) takeNetwork(counters map[string]stats.NetCounters, err error) {
 	w.network.report(err)
 	if err != nil {
 		return
@@ -556,7 +616,9 @@ func (w *Window) sampleNetwork() {
 			delete(w.network.adapters, name)
 		}
 	}
-	if added {
+	// The adapters there are now are seen today, and those long gone are
+	// forgotten, colour and all.
+	if w.config.SeeAdapters(sortedKeys(rates), now) || added {
 		w.saveConfig()
 	}
 	w.showNetwork()

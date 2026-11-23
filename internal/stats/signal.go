@@ -17,12 +17,20 @@ type Signal struct {
 // has been given to another.
 var ErrEnded = errors.New("the process has ended")
 
+// ErrFirst is the error of signalling the system's first process, init or
+// systemd, which every other depends on. The system refuses it of anyone but
+// root; it is never sent here whoever asks.
+var ErrFirst = errors.New("the system's first process is never signalled")
+
 // signal sends the signal of the number to the process, if started says it
 // is still running and started when it did.
 func signal(p Process, started func(pid int) (uint64, bool), number int) error {
 	// A PID of 0 or less would signal a group of processes, not one.
 	if p.PID <= 0 {
 		return ErrEnded
+	}
+	if p.PID == 1 {
+		return ErrFirst
 	}
 	if start, ok := started(p.PID); !ok || start != p.Start {
 		return ErrEnded

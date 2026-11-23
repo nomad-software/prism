@@ -216,6 +216,41 @@ func TestLinux(t *testing.T) {
 	}
 }
 
+// TestLinuxNetworkVirtual has an adapter that links to a device under
+// /sys/devices/virtual said to be one the system made up, and one that links
+// to a device of the computer's not.
+func TestLinuxNetworkVirtual(t *testing.T) {
+	root := writeFiles(t, map[string]string{
+		"sys/devices/virtual/net/veth1/statistics/rx_bytes":                "1\n",
+		"sys/devices/virtual/net/veth1/statistics/tx_bytes":                "2\n",
+		"sys/devices/pci0000:00/0000:00:1f.6/net/eth0/statistics/rx_bytes": "3\n",
+		"sys/devices/pci0000:00/0000:00:1f.6/net/eth0/statistics/tx_bytes": "4\n",
+	})
+	class := filepath.Join(root, "sys", "class", "net")
+	if err := os.MkdirAll(class, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, device := range map[string]string{
+		"veth1": "../../devices/virtual/net/veth1",
+		"eth0":  "../../devices/pci0000:00/0000:00:1f.6/net/eth0",
+	} {
+		if err := os.Symlink(device, filepath.Join(class, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := Linux{Root: root}.Network()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]NetCounters{
+		"veth1": {Received: 1, Sent: 2, Virtual: true},
+		"eth0":  {Received: 3, Sent: 4},
+	}
+	if !reflect.DeepEqual(n, want) {
+		t.Errorf("Network = %+v, want %+v", n, want)
+	}
+}
+
 func TestLinuxMissingFiles(t *testing.T) {
 	l := Linux{Root: t.TempDir()}
 	if _, err := l.CPU(); err == nil {

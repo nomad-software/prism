@@ -450,7 +450,7 @@ func TestSettingsDialog(t *testing.T) {
 
 	var got *settings.Settings
 	qutetest.Run(t, func() {
-		d := newSettingsDialog(nil, current, 3, []string{"eth0", "wlan0"}, 16, func(s settings.Settings) { got = &s })
+		d := newSettingsDialog(nil, current, 3, []string{"eth0", "wlan0"}, nil, 16, func(s settings.Settings) { got = &s })
 		if d.shown.RowCount() != 2 || d.shown.Item(0, colAdapterName).CheckState() != qtcore.Checked || d.shown.Item(1, colAdapterName).CheckState() != qtcore.Unchecked {
 			t.Error("the adapters shown are not ticked")
 		}
@@ -552,7 +552,7 @@ func TestSettingsDialogUseDefaultColours(t *testing.T) {
 	current.Colours.Network = map[string]string{"eth0": "#222222"}
 	current.HiddenAdapters = []string{"eth0"}
 	qutetest.Run(t, func() {
-		d := newSettingsDialog(nil, current, 1, []string{"eth0"}, 16, func(settings.Settings) {})
+		d := newSettingsDialog(nil, current, 1, []string{"eth0"}, nil, 16, func(settings.Settings) {})
 		defer d.Reject()
 		if d.resetColours.Text() != "Use Default Colours" {
 			t.Errorf("reset button = %q", d.resetColours.Text())
@@ -626,7 +626,7 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 
 	var got *settings.Settings
 	qutetest.Run(t, func() {
-		d := newSettingsDialog(nil, current, 1, []string{"eth0", "wlan0"}, 16, func(s settings.Settings) { got = &s })
+		d := newSettingsDialog(nil, current, 1, []string{"eth0", "wlan0"}, nil, 16, func(s settings.Settings) { got = &s })
 		d.box.Button(qtwidgets.QDialogButtonBoxRestoreDefaults).Click()
 		if d.cpuInterval.Value() != settings.DefaultIntervals.CPU || currentData(d.theme) != "" || d.grid.colour != settings.DefaultGrid ||
 			d.shown.Item(0, colAdapterAlias).Text() != "" {
@@ -656,7 +656,7 @@ func TestSettingsDialogRestoreDefaults(t *testing.T) {
 func TestSettingsDialogCancel(t *testing.T) {
 	called := false
 	qutetest.Run(t, func() {
-		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, 16, func(settings.Settings) { called = true })
+		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, nil, 16, func(settings.Settings) { called = true })
 		if d.adapters != nil {
 			t.Error("there are adapter buttons with no adapters")
 		}

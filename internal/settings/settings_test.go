@@ -610,13 +610,13 @@ func TestSeeAdapters(t *testing.T) {
 	if !s.SeeAdapters([]string{"eth0", "new"}, now) {
 		t.Error("SeeAdapters said nothing changed")
 	}
-	// One that is there is seen today, however long ago it last was; one
+	// One that is there is seen today, however long ago it last was, if it
+	// has a colour here, as the new one has not; one
 	// gone for longer than is kept is forgotten, unless it is hidden or has
 	// an alias; one without a day that can be read is given today's; and a
 	// day of one that is not remembered is dropped.
 	want := map[string]string{
 		"eth0":    day(0),
-		"new":     day(0),
 		"veth2":   day(30),
 		"docker0": day(90),
 		"wg0":     day(90),
@@ -641,6 +641,32 @@ func TestSeeAdapters(t *testing.T) {
 	}
 	if !s.SeeAdapters([]string{"eth0"}, now.AddDate(0, 0, 1)) || s.AdapterSeen["eth0"] != day(-1) {
 		t.Errorf("the next day eth0 was seen %s", s.AdapterSeen["eth0"])
+	}
+
+	// Where more are remembered than may be, those that have gone that were
+	// seen longest ago are forgotten, but none that is there, hidden or has
+	// an alias, or more than need be.
+	many := Defaults()
+	many.AdapterSeen = map[string]string{}
+	for i := range MaxAdapters + 3 {
+		name := fmt.Sprintf("usb%02d", i)
+		many.Colours.Adapter(name)
+		many.AdapterSeen[name] = day(i % 20)
+	}
+	many.HiddenAdapters = []string{"usb19"}
+	many.AdapterAliases = map[string]string{"usb18": "Dock"}
+	if !many.SeeAdapters([]string{"usb17"}, now) || len(many.Colours.Network) != MaxAdapters {
+		t.Errorf("%d adapters remembered, want %d", len(many.Colours.Network), MaxAdapters)
+	}
+	for _, name := range []string{"usb17", "usb18", "usb19", "usb00", "usb20", "usb13"} {
+		if _, kept := many.Colours.Network[name]; !kept {
+			t.Errorf("%s was forgotten", name)
+		}
+	}
+	for _, name := range []string{"usb16", "usb15", "usb14"} {
+		if _, kept := many.Colours.Network[name]; kept {
+			t.Errorf("%s, seen longest ago, is remembered", name)
+		}
 	}
 
 	// Settings that have never kept the days are given a place for them.

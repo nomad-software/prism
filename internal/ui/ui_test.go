@@ -1084,7 +1084,7 @@ func TestSettingsKeepUnlistedCores(t *testing.T) {
 	var got *settings.Settings
 	qutetest.Run(t, func() {
 		// A computer with four cores, of settings from one with more.
-		d := newSettingsDialog(nil, current, 4, nil, 16, func(s settings.Settings) { got = &s })
+		d := newSettingsDialog(nil, current, 4, nil, nil, 16, func(s settings.Settings) { got = &s })
 		d.cores[0].set("#aaaaaa")
 		d.box.Button(qtwidgets.QDialogButtonBoxOk).Click()
 	})
@@ -1193,7 +1193,7 @@ func labels(o qtcore.QObjectLike) []*qtwidgets.QLabel {
 func TestSettingsIntervalNote(t *testing.T) {
 	// The note on the intervals says what range the boxes take.
 	qutetest.Run(t, func() {
-		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, 16, func(settings.Settings) {})
+		d := newSettingsDialog(nil, settings.Defaults(), 0, nil, nil, 16, func(settings.Settings) {})
 		defer d.Reject()
 		found := false
 		for _, label := range labels(d) {
@@ -1343,4 +1343,122 @@ func TestAdaptersForgotten(t *testing.T) {
 	if _, kept := saved.Colours.Network["veth1"]; kept || len(saved.Colours.Network) != 1 || len(saved.AdapterSeen) != 1 {
 		t.Errorf("saved colours %v, seen %v, want only eth0's", saved.Colours.Network, saved.AdapterSeen)
 	}
+}
+
+// TestVirtualAdapters has the adapters the system made up given colours
+// only while the program runs, after those of the computer's own, which
+// alone the settings keep, unless one is given a colour by hand.
+func TestVirtualAdapters(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	virtual := stats.NetCounters{Virtual: true}
+	tw.source.set(func(f *fakeSource) {
+		f.network = map[string]stats.NetCounters{"docker0": virtual, "eth0": {}, "lo": virtual, "veth1": virtual}
+	})
+	// colours returns the colour of each adapter in the legend, by name.
+	colours := func() map[string]string {
+		c := map[string]string{}
+		for _, e := range tw.network.legend.entries {
+			c[e.label] = e.colour
+		}
+		return c
+	}
+	distinct := func(c map[string]string) bool {
+		seen := map[string]bool{}
+		for _, colour := range c {
+			if colour == "" || seen[colour] {
+				return false
+			}
+			seen[colour] = true
+		}
+		return true
+	}
+	palette := settings.Defaults().Colours
+	first, _ := palette.Adapter("first")
+	var before map[string]string
+	qutetest.Run(t, func() {
+		tw.sampleNetwork()
+		before = colours()
+		if len(before) != 4 || !distinct(before) {
+			t.Errorf("colours = %v, want four that differ", before)
+		}
+		// The computer's own has the first colour, though others are
+		// before it by name.
+		if before["eth0"] != first {
+			t.Errorf("eth0 is %s, want the first colour, %s", before["eth0"], first)
+		}
+	})
+	saved := settings.Load(tw.path)
+	if len(saved.Colours.Network) != 1 || saved.Colours.Network["eth0"] != first || len(saved.AdapterSeen) != 1 {
+		t.Errorf("saved colours %v, seen %v, want only eth0's", saved.Colours.Network, saved.AdapterSeen)
+	}
+
+	// The settings list them all, and keep none of their colours for
+	// being shown them; one can be hidden without its colour being kept.
+	qutetest.Run(t, func() {
+		d := tw.editSettings()
+		defer d.Reject()
+		if want := []string{"docker0", "eth0", "lo", "veth1"}; !slices.Equal(d.names, want) {
+			t.Fatalf("adapters listed = %v, want %v", d.names, want)
+		}
+		for i, name := range d.names {
+			if d.adapters[i].colour != before[name] {
+				t.Errorf("%s is shown as %s, want %s", name, d.adapters[i].colour, before[name])
+			}
+		}
+		d.shown.Item(2, colAdapterName).SetCheckState(qtcore.Unchecked)
+		tw.applySettings(d.chosen(tw.config))
+		if len(tw.config.Colours.Network) != 1 || !slices.Equal(tw.config.HiddenAdapters, []string{"lo"}) {
+			t.Errorf("colours kept %v, hidden %v", tw.config.Colours.Network, tw.config.HiddenAdapters)
+		}
+		if now := colours(); len(now) != 3 || now["docker0"] != before["docker0"] || now["veth1"] != before["veth1"] {
+			t.Errorf("colours = %v, want those of %v but lo's", now, before)
+		}
+	})
+
+	// One of the computer's that appears takes the next colour the settings
+	// have, and the one that had it for now is given another.
+	tw.source.set(func(f *fakeSource) {
+		f.network = map[string]stats.NetCounters{"docker0": virtual, "eth0": {}, "lo": virtual, "veth1": virtual, "wlan0": {}}
+	})
+	tw.advance(2 * time.Second)
+	qutetest.Run(t, func() {
+		tw.sampleNetwork()
+		now := colours()
+		if len(now) != 4 || !distinct(now) || now["wlan0"] != before["docker0"] || now["eth0"] != first {
+			t.Errorf("colours = %v, want four that differ, wlan0 with %s", now, before["docker0"])
+		}
+		// A colour chosen for one the system made up is kept.
+		for _, e := range tw.network.legend.entries {
+			if e.label == "veth1" {
+				e.setColour("#123456")
+			}
+		}
+		if now := colours(); now["veth1"] != "#123456" || !distinct(now) {
+			t.Errorf("colours = %v, want veth1 as chosen", now)
+		}
+	})
+	saved = settings.Load(tw.path)
+	if want := map[string]string{"eth0": first, "wlan0": before["docker0"], "veth1": "#123456"}; !maps.Equal(saved.Colours.Network, want) {
+		t.Errorf("saved colours = %v, want %v", saved.Colours.Network, want)
+	}
+}
+
+// TestCloseStopsTimers has nothing read or drawn once the window has closed.
+func TestCloseStopsTimers(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	qutetest.Run(t, func() {
+		tw.Start()
+		timers := []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer, tw.frames}
+		for _, timer := range timers {
+			if !timer.IsActive() {
+				t.Fatal("a timer was not started")
+			}
+		}
+		tw.Close()
+		for _, timer := range timers {
+			if timer.IsActive() {
+				t.Error("a timer runs after the window closed")
+			}
+		}
+	})
 }

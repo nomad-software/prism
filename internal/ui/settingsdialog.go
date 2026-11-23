@@ -36,6 +36,10 @@ type settingsDialog struct {
 	// names.
 	adapters []*swatch
 	names    []string
+	// session are the colours of the adapters listed that the settings
+	// keep none for, as those the system made up, which are kept only if
+	// they are changed here.
+	session map[string]string
 	// resetColours puts the default colours in the dialog.
 	resetColours *qtwidgets.QPushButton
 	box          *qtwidgets.QDialogButtonBox
@@ -60,8 +64,8 @@ const colourTableHeight = 300
 // processors there are and of the network adapters named, and the top of the
 // memory graph unless another is chosen, and calls accepted with them if they
 // are.
-func newSettingsDialog(parent qtwidgets.QWidgetLike, current settings.Settings, cores int, adapters []string, defaultMemoryMax int, accepted func(settings.Settings)) *settingsDialog {
-	d := &settingsDialog{QDialog: qtwidgets.NewQDialog(parent), names: adapters, defaultMemoryMax: defaultMemoryMax}
+func newSettingsDialog(parent qtwidgets.QWidgetLike, current settings.Settings, cores int, adapters []string, session map[string]string, defaultMemoryMax int, accepted func(settings.Settings)) *settingsDialog {
+	d := &settingsDialog{QDialog: qtwidgets.NewQDialog(parent), names: adapters, session: session, defaultMemoryMax: defaultMemoryMax}
 	d.SetWindowTitle("Settings")
 	d.SetMinimumWidth(settingsLeastWidth)
 	tabs := qtwidgets.NewQTabWidget(nil)
@@ -327,7 +331,11 @@ func (d *settingsDialog) showColours(c settings.Colours) {
 		s.set(c.Core(i))
 	}
 	for i, s := range d.adapters {
-		s.set(c.Network[d.names[i]])
+		colour, kept := c.Network[d.names[i]]
+		if !kept {
+			colour = d.session[d.names[i]]
+		}
+		s.set(colour)
 	}
 }
 
@@ -405,7 +413,13 @@ func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 	}
 	maps.Copy(s.Colours.Network, current.Colours.Network)
 	for i, sw := range d.adapters {
-		s.Colours.Network[d.names[i]] = sw.colour
+		name := d.names[i]
+		// The colour of an adapter the settings keep none for is only kept
+		// if it was changed.
+		if _, kept := current.Colours.Network[name]; !kept && sw.colour == d.session[name] {
+			continue
+		}
+		s.Colours.Network[name] = sw.colour
 	}
 	return s
 }

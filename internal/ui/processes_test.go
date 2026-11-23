@@ -2,6 +2,7 @@ package ui
 
 import (
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"syscall"
@@ -848,72 +849,177 @@ func TestProcessesUnchosen(t *testing.T) {
 	}
 }
 
-// TestProcessItemsKept has the items of the tree kept from one refresh to
-// the next, each showing the process now in its place, with only as many
-// made or deleted as there are more or fewer.
+// TestProcessItemsKept has each process keep its item from one refresh to
+// the next, wherever it is listed: one is made only for a process newly
+// listed, and deleted only when its process no longer is.
 func TestProcessItemsKept(t *testing.T) {
 	tw := newTestWindow(t, func(s *settings.Settings) {
 		showAll(s)
 		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
 	})
-	addresses := func() []unsafe.Pointer {
-		var ptrs []unsafe.Pointer
+	// byName returns the address of the item of each process, by its name.
+	byName := func() map[string]unsafe.Pointer {
+		ptrs := map[string]unsafe.Pointer{}
 		all, _ := items(tw)
 		for _, item := range all {
-			ptrs = append(ptrs, item.Ptr())
+			ptrs[item.Text(colProcessName)] = item.Ptr()
 		}
 		return ptrs
 	}
 	tw.source.set(func(f *fakeSource) {
 		f.procs = []stats.Process{{PID: 1, Name: "a"}, {PID: 2, Name: "b"}, {PID: 3, Name: "c"}}
 	})
-	var first []unsafe.Pointer
+	var first map[string]unsafe.Pointer
 	qutetest.Run(t, func() {
 		tw.sampleProcesses()
-		first = addresses()
+		first = byName()
 		chooseRow(tw, 1)
 	})
-	// Another process in the place of one that has ended is shown by the
-	// item that showed it, and is not chosen for that; one more is given an
-	// item of its own.
+	// One ends and others start between those there: the rest keep their
+	// items, and the one chosen is no longer.
 	tw.advance(time.Second)
 	tw.source.set(func(f *fakeSource) {
-		f.procs = []stats.Process{{PID: 1, Name: "a"}, {PID: 4, Name: "d"}, {PID: 5, Name: "e"}, {PID: 6, Name: "f"}}
+		f.procs = []stats.Process{{PID: 0 + 1, Name: "a"}, {PID: 3, Name: "c"}, {PID: 4, Name: "d"}, {PID: 2, Name: "e", Start: 9}}
 	})
 	qutetest.Run(t, func() {
 		tw.sampleProcesses()
-		now := addresses()
-		if len(now) != 4 || !slices.Equal(now[:3], first) {
-			t.Errorf("items = %v, want the first three to be %v", now, first)
-		}
-		if got := column(tw, colProcessName); !slices.Equal(got, []string{"a", "d", "e", "f"}) {
+		now := byName()
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"a", "e", "c", "d"}) {
 			t.Errorf("names = %q", got)
 		}
-		if got := column(tw, colProcessPID); !slices.Equal(got, []string{"1", "4", "5", "6"}) {
-			t.Errorf("PIDs = %q", got)
+		if now["a"] != first["a"] || now["c"] != first["c"] {
+			t.Errorf("items = %v, want those of a and c kept from %v", now, first)
+		}
+		if len(tw.processes.rows) != 4 || len(tw.processes.byItem) != 4 {
+			t.Errorf("%d rows and %d items kept, want 4", len(tw.processes.rows), len(tw.processes.byItem))
 		}
 		if tw.processes.chosen != nil || chosenRow(tw) != -1 || tw.processes.tree.CurrentItem() != nil {
 			t.Errorf("chosen = %+v, row %d, after it ended", tw.processes.chosen, chosenRow(tw))
 		}
-		// The item of each row is the one its process is found by.
-		chooseRow(tw, 3)
-		if tw.processes.chosen == nil || tw.processes.chosen.PID != 6 {
-			t.Errorf("chosen = %+v, want 6", tw.processes.chosen)
+		chooseRow(tw, 2)
+		if tw.processes.chosen == nil || tw.processes.chosen.PID != 3 {
+			t.Errorf("chosen = %+v, want 3", tw.processes.chosen)
 		}
 	})
-	// Those left over are deleted, and the process chosen is chosen where
-	// it is now.
-	tw.advance(time.Second)
-	tw.source.set(func(f *fakeSource) {
-		f.procs = []stats.Process{{PID: 6, Name: "f"}}
+	// Sorted the other way, every process keeps its item, and the one
+	// chosen is chosen where it is now.
+	qutetest.Run(t, func() {
+		before := byName()
+		tw.processes.tree.Header().SetSortIndicator(colProcessPID, qtcore.DescendingOrder)
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"d", "c", "e", "a"}) {
+			t.Errorf("names = %q", got)
+		}
+		if now := byName(); !maps.Equal(now, before) {
+			t.Errorf("items = %v, want %v", now, before)
+		}
+		if chosenRow(tw) != 1 || tw.processes.chosen == nil || tw.processes.chosen.PID != 3 {
+			t.Errorf("chosen = %+v, row %d", tw.processes.chosen, chosenRow(tw))
+		}
 	})
+	// Searched for, only those found have items, and the others are given
+	// new ones when the search is cleared.
+	qutetest.Run(t, func() {
+		tw.processes.search.SetText("c")
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"c"}) || len(tw.processes.rows) != 1 {
+			t.Errorf("names = %q, %d rows", got, len(tw.processes.rows))
+		}
+		if chosenRow(tw) != 0 {
+			t.Errorf("chosen row = %d", chosenRow(tw))
+		}
+		tw.processes.search.SetText("")
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"d", "c", "e", "a"}) {
+			t.Errorf("names = %q", got)
+		}
+	})
+}
+
+// TestProcessRowsMoved has the rows of a tree moved as their processes come
+// to be under others, or in another order, each with those under it and its
+// branch folded or open as it was.
+func TestProcessRowsMoved(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessView = settings.ViewTree
+		s.ProcessSort, s.ProcessOrder = settings.SortMemory, settings.OrderDescending
+	})
+	procs := func(memory ...uint64) []stats.Process {
+		list := []stats.Process{
+			{PID: 1, Name: "a"}, {PID: 2, PPID: 1, Name: "b"}, {PID: 3, PPID: 2, Name: "c"},
+			{PID: 4, PPID: 1, Name: "d"}, {PID: 5, Name: "e"}, {PID: 6, PPID: 5, Name: "f"},
+		}
+		for i := range list {
+			list[i].Memory = memory[i] << 20
+		}
+		return list
+	}
+	address := func(name string) unsafe.Pointer {
+		all, _ := items(tw)
+		for _, item := range all {
+			if item.Text(colProcessName) == name {
+				return item.Ptr()
+			}
+		}
+		return nil
+	}
+	tw.source.set(func(f *fakeSource) { f.procs = procs(9, 8, 7, 6, 5, 4) })
+	var b, c unsafe.Pointer
 	qutetest.Run(t, func() {
 		tw.sampleProcesses()
-		if now := addresses(); len(now) != 1 || now[0] != first[0] {
-			t.Errorf("items = %v, want only %v", now, first[0])
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"a", "b", "c", "d", "e", "f"}) {
+			t.Fatalf("names = %q", got)
 		}
-		if len(tw.processes.rows) != 1 || chosenRow(tw) != 0 || tw.processes.chosen.PID != 6 {
-			t.Errorf("rows = %v, chosen row %d", tw.processes.rows, chosenRow(tw))
+		b, c = address("b"), address("c")
+		// The branch of b is folded by hand.
+		all, _ := items(tw)
+		all[1].SetExpanded(false)
+		chooseRow(tw, 3)
+	})
+	// The order under a, and at the top, is turned about.
+	tw.advance(time.Second)
+	tw.source.set(func(f *fakeSource) { f.procs = procs(1, 2, 7, 6, 5, 4) })
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"e", "f", "a", "d", "b", "c"}) {
+			t.Errorf("names = %q", got)
+		}
+		if got := depths(tw); !slices.Equal(got, []int{0, 1, 0, 1, 1, 2}) {
+			t.Errorf("depths = %v", got)
+		}
+		if address("b") != b || address("c") != c {
+			t.Error("the rows moved were given other items")
+		}
+		all, _ := items(tw)
+		if !all[0].IsExpanded() || !all[2].IsExpanded() || all[4].IsExpanded() {
+			t.Error("the branches are not open and folded as they were")
+		}
+		if chosenRow(tw) != 3 || tw.processes.chosen.PID != 4 {
+			t.Errorf("chosen = %+v, row %d", tw.processes.chosen, chosenRow(tw))
+		}
+	})
+	// a ends: b and d are at the top, b with c still under it, still
+	// folded.
+	tw.advance(time.Second)
+	tw.source.set(func(f *fakeSource) { f.procs = procs(1, 2, 7, 6, 5, 4)[1:] })
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"d", "e", "f", "b", "c"}) {
+			t.Errorf("names = %q", got)
+		}
+		if got := depths(tw); !slices.Equal(got, []int{0, 0, 1, 0, 1}) {
+			t.Errorf("depths = %v", got)
+		}
+		if address("b") != b || address("c") != c {
+			t.Error("the rows of a process that ended were not kept")
+		}
+		all, _ := items(tw)
+		if all[3].IsExpanded() || !all[1].IsExpanded() {
+			t.Error("the branches are not open and folded as they were")
+		}
+		if chosenRow(tw) != 0 {
+			t.Errorf("chosen row = %d", chosenRow(tw))
+		}
+		if len(tw.processes.rows) != 5 || len(tw.processes.byItem) != 5 || len(tw.processes.tops) != 3 {
+			t.Errorf("%d rows, %d items, %d at the top", len(tw.processes.rows), len(tw.processes.byItem), len(tw.processes.tops))
 		}
 	})
 }

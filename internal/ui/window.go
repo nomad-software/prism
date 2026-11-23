@@ -122,6 +122,14 @@ type adapter struct {
 	// present says whether it was in the last reading. One that is not is
 	// kept until its lines have gone off the left of the graphs.
 	present bool
+	// virtual says that the system made it up, as it does the loopback, a
+	// bridge, a tunnel or a container's link. Such come and go under ever
+	// new names, so the settings keep no colour for one unless it is given
+	// one by hand.
+	virtual bool
+	// colour is the colour it has while the program runs, where the
+	// settings keep none for it.
+	colour string
 }
 
 // NewWindow makes the window, with the settings kept at the path, reading the
@@ -186,6 +194,10 @@ func NewWindow(path string, source stats.Source) *Window {
 // CloseEvent saves the settings, with the size of the window, as it closes.
 func (w *Window) CloseEvent(event *qtgui.QCloseEvent) {
 	w.closed = true
+	// Nothing more is read or drawn.
+	for _, t := range []*qtcore.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer, w.frames} {
+		t.Stop()
+	}
 	w.saveSettings()
 	w.Super().CloseEvent(event)
 }
@@ -564,9 +576,10 @@ func (w *Window) units() chart.Units {
 }
 
 // sampleNetwork reads the counters of the network adapters, and shows how
-// fast each received and sent since they were last read. An adapter seen for
-// the first time is given a colour, which the settings keep, until it has
-// been gone for longer than they remember one.
+// fast each received and sent since they were last read. An adapter of the
+// computer's seen for the first time is given a colour, which the settings
+// keep, until it has been gone for longer than they remember one. One the
+// system made up has a colour only while the program runs.
 func (w *Window) sampleNetwork() {
 	w.takeNetwork(w.source.Network())
 }
@@ -594,13 +607,15 @@ func (w *Window) takeNetwork(counters map[string]stats.NetCounters, err error) {
 			a = &adapter{}
 			w.network.adapters[name] = a
 		}
-		a.present, a.rate = true, rate
+		a.present, a.rate, a.virtual = true, rate, rate.Total.Virtual
 		// Until an adapter's second reading its lines are 0 across the
 		// graphs.
 		a.received.Record(now, s, 0, rate.Received)
 		a.sent.Record(now, s, 0, rate.Sent)
-		if _, given := w.config.Colours.Adapter(name); given {
-			added = true
+		if !a.virtual {
+			if _, given := w.config.Colours.Adapter(name); given {
+				added = true
+			}
 		}
 	}
 	before := now.Add(-s)
@@ -621,7 +636,46 @@ func (w *Window) takeNetwork(counters map[string]stats.NetCounters, err error) {
 	if w.config.SeeAdapters(sortedKeys(rates), now) || added {
 		w.saveConfig()
 	}
+	w.colourAdapters()
 	w.showNetwork()
+}
+
+// colourAdapters gives each adapter the settings keep no colour for one for
+// while the program runs: the first no other adapter has, in the order of
+// their names, after those the settings keep, so that it is the same each
+// time for the same adapters. One whose colour the settings have since given
+// to another is given a new one.
+func (w *Window) colourAdapters() {
+	kept := make(map[string]bool, len(w.config.Colours.Network))
+	for _, colour := range w.config.Colours.Network {
+		kept[colour] = true
+	}
+	names := sortedKeys(w.network.adapters)
+	var taken []string
+	for _, name := range names {
+		a := w.network.adapters[name]
+		if _, saved := w.config.Colours.Network[name]; saved || kept[a.colour] {
+			a.colour = ""
+		} else if a.colour != "" {
+			taken = append(taken, a.colour)
+		}
+	}
+	for _, name := range names {
+		a := w.network.adapters[name]
+		if _, saved := w.config.Colours.Network[name]; !saved && a.colour == "" {
+			a.colour = w.config.Colours.UnusedAdapter(taken)
+			taken = append(taken, a.colour)
+		}
+	}
+}
+
+// adapterColour returns the colour of the adapter with the name: the one
+// the settings keep for it, or else the one it has while the program runs.
+func (w *Window) adapterColour(name string) string {
+	if colour, saved := w.config.Colours.Network[name]; saved {
+		return colour
+	}
+	return w.network.adapters[name].colour
 }
 
 // showNetwork draws the graphs of what the network adapters received and
@@ -642,7 +696,7 @@ func (w *Window) showNetwork() {
 			continue
 		}
 		a := w.network.adapters[name]
-		colour, _ := w.config.Colours.Adapter(name)
+		colour := w.adapterColour(name)
 		// An adapter that has gone is not held, and its lines end at its
 		// last reading.
 		received = append(received, line{colour, a.received.Points(), a.present})
@@ -670,9 +724,19 @@ func sortedKeys[V any](m map[string]V) []string {
 }
 
 // editSettings shows the settings, and puts them into effect if they are
-// changed.
+// changed. The adapters listed are those the settings keep colours for, and
+// those there are that they keep none for, with the colours they have now.
 func (w *Window) editSettings() *settingsDialog {
-	return newSettingsDialog(w, w.config, len(w.cpu.cores), sortedKeys(w.config.Colours.Network), chart.DefaultMemoryMax(w.memory.last.Total), w.applySettings)
+	names := slices.Collect(maps.Keys(w.config.Colours.Network))
+	session := map[string]string{}
+	for name, a := range w.network.adapters {
+		if _, saved := w.config.Colours.Network[name]; !saved {
+			names = append(names, name)
+			session[name] = a.colour
+		}
+	}
+	slices.Sort(names)
+	return newSettingsDialog(w, w.config, len(w.cpu.cores), names, session, chart.DefaultMemoryMax(w.memory.last.Total), w.applySettings)
 }
 
 // applySettings puts the settings into effect, and saves them.
@@ -697,6 +761,7 @@ func (w *Window) applySettings(s settings.Settings) {
 			t.timer.SetInterval(ms)
 		}
 	}
+	w.colourAdapters()
 	w.showCPU()
 	w.showMemory()
 	w.showNetwork()

@@ -42,7 +42,9 @@ func (l Linux) Memory() (Memory, error) {
 
 // Network reads the counters of each adapter in /sys/class/net. An adapter
 // whose counters cannot be read, as one that went away while they were being
-// read, is left out.
+// read, is left out. Each adapter there is a link to its device, and those
+// the system made up are kept apart from the computer's own, under
+// /sys/devices/virtual.
 func (l Linux) Network() (map[string]NetCounters, error) {
 	dir := filepath.Join(l.Root, "sys", "class", "net")
 	entries, err := os.ReadDir(dir)
@@ -60,7 +62,12 @@ func (l Linux) Network() (map[string]NetCounters, error) {
 		if err != nil {
 			continue
 		}
-		counters[e.Name()] = NetCounters{Received: received, Sent: sent}
+		device, _ := os.Readlink(filepath.Join(dir, e.Name()))
+		counters[e.Name()] = NetCounters{
+			Received: received,
+			Sent:     sent,
+			Virtual:  strings.Contains(filepath.ToSlash(device), "/devices/virtual/"),
+		}
 	}
 	return counters, nil
 }

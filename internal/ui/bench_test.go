@@ -12,7 +12,8 @@ import (
 
 // The benchmarks measure what the window does over and over while it runs:
 // a frame of the graphs between readings, a reading of every statistic with
-// the graphs and legends drawn again, a refresh of the processes, and the
+// the graphs and legends drawn again, a refresh of the processes, in the
+// same order and in another, and the
 // whole window drawn. Each runs its loop on the GUI thread, so that what is
 // timed is the window's work and Qt's, and not passing calls to the thread.
 // Run them with make bench.
@@ -165,3 +166,33 @@ func benchmarkProcesses(b *testing.B, view string) {
 
 func BenchmarkProcessList(b *testing.B) { benchmarkProcesses(b, settings.ViewList) }
 func BenchmarkProcessTree(b *testing.B) { benchmarkProcesses(b, settings.ViewTree) }
+
+// benchmarkProcessesMoving times a refresh of the processes, shown in the
+// view, where the order of them changes at each, as it does sorted by how
+// busy they are on a busy system.
+func benchmarkProcessesMoving(b *testing.B, view string) {
+	tw := newTestWindow(b, func(s *settings.Settings) {
+		s.ProcessFilter = settings.ProcessesAll
+		s.ProcessView = view
+	})
+	step := 0
+	spent := make([]time.Duration, benchProcs)
+	qutetest.Run(b, func() {
+		tw.tabs.SetCurrentIndex(1)
+		for b.Loop() {
+			step++
+			list := benchProcesses(step)
+			for i := range list {
+				spent[i] += time.Duration((i*7919+step*104729)%97) * time.Millisecond
+				list[i].CPU = spent[i]
+			}
+			tw.source.set(func(f *fakeSource) { f.procs = list })
+			tw.advance(2 * time.Second)
+			tw.sampleProcesses()
+			tw.processes.tree.Viewport().Repaint()
+		}
+	})
+}
+
+func BenchmarkProcessListMoving(b *testing.B) { benchmarkProcessesMoving(b, settings.ViewList) }
+func BenchmarkProcessTreeMoving(b *testing.B) { benchmarkProcessesMoving(b, settings.ViewTree) }

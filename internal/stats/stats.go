@@ -54,6 +54,10 @@ type Memory struct {
 // when the adapter is reset.
 type NetCounters struct {
 	Received, Sent uint64
+	// Virtual says that the adapter is one the system made up, as the
+	// loopback, a bridge, a tunnel or the end of a container's link are,
+	// rather than a device of the computer's.
+	Virtual bool
 }
 
 // Process is what is read of a process.

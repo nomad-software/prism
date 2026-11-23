@@ -123,17 +123,27 @@ func (c *Colours) Adapter(name string) (colour string, added bool) {
 	if c.Network == nil {
 		c.Network = map[string]string{}
 	}
-	used := make(map[string]bool, len(c.Network))
+	colour = c.UnusedAdapter(nil)
+	c.Network[name] = colour
+	return colour, true
+}
+
+// UnusedAdapter returns the first of the colours adapters are given that no
+// adapter has, and that is not one of those taken, which are the colours of
+// adapters that are not kept here.
+func (c Colours) UnusedAdapter(taken []string) string {
+	used := make(map[string]bool, len(c.Network)+len(taken))
 	for _, colour := range c.Network {
 		used[colour] = true
 	}
+	for _, colour := range taken {
+		used[colour] = true
+	}
 	for i := 0; ; i++ {
-		if colour = variant(adapterColours, i); !used[colour] {
-			break
+		if colour := variant(adapterColours, i); !used[colour] {
+			return colour
 		}
 	}
-	c.Network[name] = colour
-	return colour, true
 }
 
 // normalise puts a default in place of each colour that is unusable. An

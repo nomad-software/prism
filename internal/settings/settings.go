@@ -5,6 +5,7 @@
 package settings
 
 import (
+	"cmp"
 	"encoding/json"
 	"math"
 	"os"
@@ -144,53 +145,74 @@ type Settings struct {
 	// by its own name.
 	AdapterAliases map[string]string `json:"adapterAliases,omitempty"`
 
-	// AdapterSeen is the day each network adapter was last seen, by its
-	// name, as "2026-01-31", by which one that has not come back is
-	// forgotten. SeeAdapters keeps it.
+	// AdapterSeen is the day each network adapter that has a colour here
+	// was last seen, by its name, as "2026-01-31", by which one that has
+	// not come back is forgotten. SeeAdapters keeps it.
 	AdapterSeen map[string]string `json:"adapterSeen,omitempty"`
 }
 
 // AdapterKept is how long a network adapter that has gone is remembered for,
-// with its colour, in case it comes back.
-const AdapterKept = 30 * 24 * time.Hour
+// with its colour, in case it comes back, and MaxAdapters how many are
+// remembered at most.
+const (
+	AdapterKept = 30 * 24 * time.Hour
+	MaxAdapters = 32
+)
 
 // SeeAdapters takes the names of the network adapters there are now, and
-// forgets those that have not been seen for longer than AdapterKept, so that
-// those that come and go under ever new names, as those of containers and
-// tunnels do, do not gather in the settings for ever. One that is hidden or
-// has an alias is never forgotten, as that was chosen for it. An adapter
-// from before the days were kept is taken to have been seen now. It says
-// whether anything changed, for the settings to be saved.
+// forgets those that have gone and have not been seen for longer than
+// AdapterKept, and, where more than MaxAdapters are still remembered, those
+// that have gone that were seen longest ago, so that adapters that come and
+// go do not gather in the settings for ever. One that is hidden or has an
+// alias is never forgotten, as that was chosen for it. An adapter from
+// before the days were kept is taken to have been seen now. It says whether
+// anything changed, for the settings to be saved.
 func (s *Settings) SeeAdapters(present []string, now time.Time) bool {
 	today := now.Format(time.DateOnly)
 	if s.AdapterSeen == nil {
 		s.AdapterSeen = map[string]string{}
 	}
 	changed := false
-	for _, name := range present {
-		if s.AdapterSeen[name] != today {
-			s.AdapterSeen[name], changed = today, true
-		}
+	forget := func(name string) {
+		delete(s.Colours.Network, name)
+		delete(s.AdapterSeen, name)
+		changed = true
 	}
+	// gone are those that could be forgotten, with the day each was seen.
+	var gone []string
 	for name := range s.Colours.Network {
 		if slices.Contains(present, name) {
+			if s.AdapterSeen[name] != today {
+				s.AdapterSeen[name], changed = today, true
+			}
 			continue
 		}
 		seen, err := time.ParseInLocation(time.DateOnly, s.AdapterSeen[name], now.Location())
-		switch {
-		case err != nil:
+		if err != nil {
 			s.AdapterSeen[name], changed = today, true
+		}
+		switch {
+		case !s.Shown(name) || s.AdapterAliases[name] != "":
 		// Only the day it was seen is kept, so it is counted from the end
 		// of that day, and never forgotten early.
-		case now.Sub(seen.AddDate(0, 0, 1)) > AdapterKept && s.Shown(name) && s.AdapterAliases[name] == "":
-			delete(s.Colours.Network, name)
-			delete(s.AdapterSeen, name)
-			changed = true
+		case err == nil && now.Sub(seen.AddDate(0, 0, 1)) > AdapterKept:
+			forget(name)
+		default:
+			gone = append(gone, name)
+		}
+	}
+	if over := len(s.Colours.Network) - MaxAdapters; over > 0 {
+		// The days are written so that they sort as they fall.
+		slices.SortFunc(gone, func(a, b string) int {
+			return cmp.Or(cmp.Compare(s.AdapterSeen[a], s.AdapterSeen[b]), cmp.Compare(a, b))
+		})
+		for _, name := range gone[:min(over, len(gone))] {
+			forget(name)
 		}
 	}
 	// A day is only kept of an adapter that is remembered.
 	for name := range s.AdapterSeen {
-		if _, kept := s.Colours.Network[name]; !kept && !slices.Contains(present, name) {
+		if _, kept := s.Colours.Network[name]; !kept {
 			delete(s.AdapterSeen, name)
 			changed = true
 		}

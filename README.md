@@ -113,7 +113,9 @@ only what is new of them, unless the scale, size or colours change.
 
 ### Where the statistics come from
 
-`/proc/stat`, `/proc/meminfo`, `/sys/class/net/*/statistics/{rx,tx}_bytes`,
+`/proc/stat`, `/proc/meminfo`, `/sys/class/net/*/statistics/{rx,tx}_bytes`
+(and where each `/sys/class/net/*` links to, which says whether the system
+made the adapter up),
 and for each process `/proc/<pid>/stat` and `/proc/<pid>/statm`, the owner
 of its folder `/proc/<pid>` (the user it runs as, by which it is a person's
 or the system's), and `/proc/<pid>/cmdline` for the full name of one whose
@@ -139,17 +141,21 @@ is built with).
   shown in the network graphs and legend. An adapter that is not ticked is
   still read, so its lines are whole when it is shown again, and it keeps its
   choice when it goes away, for when it comes back. Each can be given an
-  alias, which the legend shows in place of its name. An adapter that has
-  not been seen for 30 days is forgotten, unless it is hidden or has an
-  alias, so that those of containers and tunnels, which come and go under
-  ever new names, do not gather here.
+  alias, which the legend shows in place of its name. Adapters the system
+  makes up (the loopback, bridges, tunnels, VPNs, containers' links) come
+  and go under ever new names, so they are listed only while they are
+  there. One of the computer's own that has not been seen for 30 days is
+  forgotten, unless it is hidden or has an alias, and no more than 32 are
+  remembered, the longest gone forgotten first.
 - **User interface**: the theme, light, dark, or following the system; and a
   table of the colours of the grid, memory, swap, all processors together,
   each processor, and each network adapter that has been seen, under a
   heading for each. Click a swatch to choose
   another colour; colours can be translucent. An adapter is given a colour
   when it is first seen, and keeps it when it goes away, for 30 days (for
-  good if it is hidden or has an alias). **Use Default
+  good if it is hidden or has an alias). One the system makes up has a
+  colour only while Prism runs, the same each time for the same adapters,
+  unless you choose one for it, which is kept as any other is. **Use Default
   Colours** puts back the colours alone. The default colours are the eight
   accents of Solarized, which read well on light and dark alike, on a grid of
   the warm grey of Ubuntu's Ambiance. Each processor's colour is across the
@@ -255,7 +261,8 @@ are ignored by git.
 
 `make bench` runs the benchmarks in `internal/ui/bench_test.go`: a frame of
 the graphs between readings, a reading of every statistic with the graphs
-and legends drawn, a refresh of 600 processes as a list and as a tree, and the
+and legends drawn, a refresh of 600 processes as a list and as a tree, in
+the same order and in another, and the
 whole window drawn, each with a window of 16 processors and 4 adapters.
 `go test -run '^$' -bench . ./internal/stats/` times a reading of the
 processes of the system it is run on.

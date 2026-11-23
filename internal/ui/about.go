@@ -161,14 +161,15 @@ func newRichLabel(text string) *qtwidgets.QLabel {
 	return label
 }
 
-// fitDialog makes the dialog at least the width, and as high as its layout
-// needs at that width, as a label that wraps is not given the height it
-// needs by the dialog's size hint alone.
+// fitDialog makes the dialog at least the width, or as wide as it asks to
+// be if that is more, and as high as its layout needs at that width, as a
+// label that wraps is not given the height it needs by the dialog's size
+// hint alone.
 func fitDialog(d *qtwidgets.QDialog, width int) {
 	layout := d.Layout()
 	layout.Activate()
 	least, hint := layout.MinimumSize(), d.SizeHint()
-	width = max(width, least.Width)
+	width = max(width, least.Width, hint.Width)
 	height := max(layout.AsQLayoutItem().HeightForWidth(width), hint.Height, least.Height)
 	d.Resize(width, height)
 }

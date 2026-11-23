@@ -600,7 +600,8 @@ func (w *Window) takeNetwork(counters map[string]stats.NetCounters, err error) {
 	rates := w.network.usage.Update(now, counters)
 	// Adapters seen for the first time together are given colours in the
 	// order of their names, so that which gets which is the same each time.
-	for _, name := range sortedKeys(rates) {
+	names := sortedKeys(rates)
+	for _, name := range names {
 		rate := rates[name]
 		a := w.network.adapters[name]
 		if a == nil {
@@ -633,7 +634,7 @@ func (w *Window) takeNetwork(counters map[string]stats.NetCounters, err error) {
 	}
 	// The adapters there are now are seen today, and those long gone are
 	// forgotten, colour and all.
-	if w.config.SeeAdapters(sortedKeys(rates), now) || added {
+	if w.config.SeeAdapters(names, now) || added {
 		w.saveConfig()
 	}
 	w.colourAdapters()

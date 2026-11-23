@@ -142,7 +142,7 @@ func (d *settingsDialog) networkTab() *qtwidgets.QWidget {
 	networkLayout.SetContentsMargins(qtcore.QMargins{Left: tabMargin, Top: tabMargin, Right: tabMargin, Bottom: tabMargin})
 	networkLayout.AddWidget(sectionHeading("Adapters"))
 	networkLayout.AddWidget(note("Those ticked are shown in the network graphs and legend, by their alias where they have one. " +
-		"Every adapter that has been seen is listed, and keeps its choices for when it is seen again."))
+		"The computer's own adapters are listed once seen, and virtual ones, as bridges and tunnels are, while they are there."))
 	d.shown = d.adapterTable()
 	networkLayout.AddWidgetFull(d.shown, 1, 0)
 	return network

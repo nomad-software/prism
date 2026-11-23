@@ -137,7 +137,7 @@ is built with).
   to); and the units:
   sizes in binary (KiB, MiB) or decimal (kB, MB, the default) units, and
   network speeds in bytes (MB/s) or bits (Mb/s, the default) a second.
-- **Network**: every network adapter that has been seen, ticked if it is
+- **Network**: the network adapters, ticked if each is
   shown in the network graphs and legend. An adapter that is not ticked is
   still read, so its lines are whole when it is shown again, and it keeps its
   choice when it goes away, for when it comes back. Each can be given an
@@ -149,7 +149,7 @@ is built with).
   remembered, the longest gone forgotten first.
 - **User interface**: the theme, light, dark, or following the system; and a
   table of the colours of the grid, memory, swap, all processors together,
-  each processor, and each network adapter that has been seen, under a
+  each processor, and each network adapter listed, under a
   heading for each. Click a swatch to choose
   another colour; colours can be translucent. An adapter is given a colour
   when it is first seen, and keeps it when it goes away, for 30 days (for

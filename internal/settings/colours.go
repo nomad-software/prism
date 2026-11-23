@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strconv"
+	"sync"
 )
 
 // Colours are the colours graphs are drawn in, each written as Qt names
@@ -23,9 +24,11 @@ type Colours struct {
 	// Memory and Swap are the colours of their lines.
 	Memory string `json:"memory"`
 	Swap   string `json:"swap"`
-	// Network are the colours of the lines of each network adapter, by its
-	// name. An adapter is given one when it is first seen, which it keeps
-	// when it goes away for when it comes back.
+	// Network are the colours of the lines of the network adapters that are
+	// kept, by their names. An adapter of the computer's own is given one
+	// when it is first seen, which it keeps when it goes away for when it
+	// comes back; one the system made up has one here only if it was chosen
+	// for it.
 	Network map[string]string `json:"network,omitempty"`
 }
 
@@ -139,11 +142,38 @@ func (c Colours) UnusedAdapter(taken []string) string {
 	for _, colour := range taken {
 		used[colour] = true
 	}
-	for i := 0; ; i++ {
-		if colour := variant(adapterColours, i); !used[colour] {
+	for i := range adapterVariants {
+		if colour := adapterVariant(i); !used[colour] {
 			return colour
 		}
 	}
+	// Every colour there is has been given, as on a computer with hundreds
+	// of adapters, so they are given again in turn.
+	return adapterVariant(len(used) % adapterVariants)
+}
+
+// adapterVariants is how many colours adapters can be given before they
+// come round again: the hues of each colour of the palette turn 10° a time
+// either way, which is 36 hues of each.
+var adapterVariants = 36 * len(adapterColours)
+
+// variantsMade are the colours adapters are given, in order, as far as they
+// have been worked out, which is done once: an adapter is given the first
+// that is not used, and working them all out again for each of many
+// adapters is slow.
+var variantsMade struct {
+	sync.Mutex
+	colours []string
+}
+
+// adapterVariant returns the colour adapters are given at the index.
+func adapterVariant(i int) string {
+	variantsMade.Lock()
+	defer variantsMade.Unlock()
+	for len(variantsMade.colours) <= i {
+		variantsMade.colours = append(variantsMade.colours, variant(adapterColours, len(variantsMade.colours)))
+	}
+	return variantsMade.colours[i]
 }
 
 // normalise puts a default in place of each colour that is unusable. An

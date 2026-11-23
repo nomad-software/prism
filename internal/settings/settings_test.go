@@ -675,3 +675,36 @@ func TestSeeAdapters(t *testing.T) {
 		t.Errorf("SeeAdapters of no adapters = %v", empty.AdapterSeen)
 	}
 }
+
+// TestUnusedAdapter has an adapter given the first colour none has, among
+// those kept and those taken, and one given again once every one is used,
+// rather than looked for without end.
+func TestUnusedAdapter(t *testing.T) {
+	c := DefaultColours()
+	first := c.UnusedAdapter(nil)
+	if first != blue {
+		t.Errorf("first = %s, want blue", first)
+	}
+	c.Network["eth0"] = first
+	second := c.UnusedAdapter(nil)
+	if third := c.UnusedAdapter([]string{second}); third == first || third == second {
+		t.Errorf("third = %s, which is used", third)
+	}
+	seen := map[string]bool{}
+	var taken []string
+	for range adapterVariants {
+		colour := c.UnusedAdapter(taken)
+		if !valid(colour) {
+			t.Fatalf("%q is not a colour", colour)
+		}
+		seen[colour] = true
+		taken = append(taken, colour)
+	}
+	// More are asked for than there are, some of which are alike.
+	if len(seen) < adapterVariants/2 {
+		t.Errorf("%d colours differ of %d", len(seen), adapterVariants)
+	}
+	if colour := c.UnusedAdapter(taken); !valid(colour) {
+		t.Errorf("%q is not a colour", colour)
+	}
+}

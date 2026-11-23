@@ -191,11 +191,12 @@ func (s *Settings) SeeAdapters(present []string, now time.Time) bool {
 		if err != nil {
 			s.AdapterSeen[name], changed = today, true
 		}
-		switch {
-		case !s.Shown(name) || s.AdapterAliases[name] != "":
 		// Only the day it was seen is kept, so it is counted from the end
 		// of that day, and never forgotten early.
-		case err == nil && now.Sub(seen.AddDate(0, 0, 1)) > AdapterKept:
+		long := err == nil && now.Sub(seen.AddDate(0, 0, 1)) > AdapterKept
+		switch chosen := !s.Shown(name) || s.AdapterAliases[name] != ""; {
+		case chosen:
+		case long:
 			forget(name)
 		default:
 			gone = append(gone, name)

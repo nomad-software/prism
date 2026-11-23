@@ -1022,6 +1022,40 @@ func TestProcessRowsMoved(t *testing.T) {
 			t.Errorf("%d rows, %d items, %d at the top", len(tw.processes.rows), len(tw.processes.byItem), len(tw.processes.tops))
 		}
 	})
+	// Shown as a list and then as a tree again, the branches are as they
+	// were, and the rows have the items they had.
+	qutetest.Run(t, func() {
+		tw.processes.view.choose(settings.ViewList)
+		if got := depths(tw); !slices.Equal(got, []int{0, 0, 0, 0, 0}) {
+			t.Errorf("depths as a list = %v", got)
+		}
+		tw.processes.view.choose(settings.ViewTree)
+		if got := column(tw, colProcessName); !slices.Equal(got, []string{"d", "e", "f", "b", "c"}) {
+			t.Errorf("names = %q", got)
+		}
+		if got := depths(tw); !slices.Equal(got, []int{0, 0, 1, 0, 1}) {
+			t.Errorf("depths = %v", got)
+		}
+		all, _ := items(tw)
+		if all[3].IsExpanded() || !all[1].IsExpanded() {
+			t.Error("the branches are not open and folded as they were before the list")
+		}
+		if address("b") != b || address("c") != c {
+			t.Error("the rows were given other items")
+		}
+	})
+	// A process listed twice, as the system never does, has one row.
+	tw.advance(time.Second)
+	tw.source.set(func(f *fakeSource) {
+		list := procs(1, 2, 7, 6, 5, 4)[1:]
+		f.procs = append(list, list[0])
+	})
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		if all, _ := items(tw); len(all) != 5 || len(tw.processes.rows) != 5 {
+			t.Errorf("%d items and %d rows, want 5", len(all), len(tw.processes.rows))
+		}
+	})
 }
 
 // TestProcessBranchesKept has the tree keep its items as its branches

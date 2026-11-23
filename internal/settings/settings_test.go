@@ -587,3 +587,70 @@ func TestMemoryMaxOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+func TestEphemeralAdapter(t *testing.T) {
+	for name, want := range map[string]bool{
+		"veth1a2b3c": true,
+		"cali9876":   true,
+		"br-deadbeef": true,
+		"vnet0":      true,
+		"tun0":       true,
+		"tap0":       true,
+		"eth0":       false,
+		"enp5s0":     false,
+		"wlan0":      false,
+		"lo":         false,
+		"docker0":    false,
+		"virbr0":     false,
+	} {
+		if got := EphemeralAdapter(name); got != want {
+			t.Errorf("EphemeralAdapter(%q) = %v, want %v", name, got, want)
+		}
+	}
+}
+
+func TestNextAdapterColour(t *testing.T) {
+	c := DefaultColours()
+	c.Adapter("eth0")
+	extra := map[string]string{"veth0": adapterColours[1]}
+	if got := c.NextAdapterColour(extra); got != adapterColours[2] {
+		t.Errorf("NextAdapterColour = %q, want %q", got, adapterColours[2])
+	}
+	if len(c.Network) != 1 {
+		t.Errorf("NextAdapterColour modified Network: %v", c.Network)
+	}
+}
+
+func TestPruneAdapters(t *testing.T) {
+	s := Defaults()
+	for i := range 10 {
+		s.Colours.Adapter(fmt.Sprintf("eth%d", i))
+	}
+	s.Colours.Adapter("veth1")
+	s.Colours.Adapter("veth2")
+	s.HiddenAdapters = []string{"eth0"}
+	s.AdapterAliases = map[string]string{"eth1": "LAN"}
+	active := map[string]bool{"eth2": true}
+
+	if !s.PruneAdapters(active, 5) {
+		t.Fatal("PruneAdapters returned false, want true")
+	}
+	if len(s.Colours.Network) != 5 {
+		t.Errorf("len(Network) = %d, want 5", len(s.Colours.Network))
+	}
+	// Active, hidden and aliased adapters are preserved; ephemeral ones are
+	// pruned first.
+	for _, keep := range []string{"eth0", "eth1", "eth2"} {
+		if _, ok := s.Colours.Network[keep]; !ok {
+			t.Errorf("%s was pruned", keep)
+		}
+	}
+	for _, gone := range []string{"veth1", "veth2"} {
+		if _, ok := s.Colours.Network[gone]; ok {
+			t.Errorf("%s was not pruned", gone)
+		}
+	}
+	if s.PruneAdapters(active, 5) {
+		t.Error("PruneAdapters returned true when already within limit")
+	}
+}

@@ -33,9 +33,11 @@ type settingsDialog struct {
 	grid, total, memory, swap *swatch
 	cores                     []*swatch
 	// adapters are the swatches of the network adapters, in the order of
-	// names.
-	adapters []*swatch
-	names    []string
+	// names. ephemeral holds session-only colours of active ephemeral
+	// adapters that are not saved unless changed by the user.
+	adapters  []*swatch
+	names     []string
+	ephemeral map[string]string
 	// resetColours puts the default colours in the dialog.
 	resetColours *qtwidgets.QPushButton
 	box          *qtwidgets.QDialogButtonBox
@@ -61,7 +63,18 @@ const colourTableHeight = 300
 // memory graph unless another is chosen, and calls accepted with them if they
 // are.
 func newSettingsDialog(parent qtwidgets.QWidgetLike, current settings.Settings, cores int, adapters []string, defaultMemoryMax int, accepted func(settings.Settings)) *settingsDialog {
-	d := &settingsDialog{QDialog: qtwidgets.NewQDialog(parent), names: adapters, defaultMemoryMax: defaultMemoryMax}
+	return newSettingsDialogWithEphemeral(parent, current, cores, adapters, nil, defaultMemoryMax, accepted)
+}
+
+// newSettingsDialogWithEphemeral is newSettingsDialog with session-only
+// colours for active ephemeral adapters.
+func newSettingsDialogWithEphemeral(parent qtwidgets.QWidgetLike, current settings.Settings, cores int, adapters []string, ephemeral map[string]string, defaultMemoryMax int, accepted func(settings.Settings)) *settingsDialog {
+	d := &settingsDialog{
+		QDialog:          qtwidgets.NewQDialog(parent),
+		names:            adapters,
+		ephemeral:        ephemeral,
+		defaultMemoryMax: defaultMemoryMax,
+	}
 	d.SetWindowTitle("Settings")
 	d.SetMinimumWidth(settingsLeastWidth)
 	tabs := qtwidgets.NewQTabWidget(nil)
@@ -327,7 +340,12 @@ func (d *settingsDialog) showColours(c settings.Colours) {
 		s.set(c.Core(i))
 	}
 	for i, s := range d.adapters {
-		s.set(c.Network[d.names[i]])
+		name := d.names[i]
+		if colour, ok := c.Network[name]; ok {
+			s.set(colour)
+		} else if colour, ok := d.ephemeral[name]; ok {
+			s.set(colour)
+		}
 	}
 }
 
@@ -405,7 +423,13 @@ func (d *settingsDialog) chosen(current settings.Settings) settings.Settings {
 	}
 	maps.Copy(s.Colours.Network, current.Colours.Network)
 	for i, sw := range d.adapters {
-		s.Colours.Network[d.names[i]] = sw.colour
+		name := d.names[i]
+		// Do not persist an ephemeral adapter's session colour unless it was
+		// already saved or the user changed it.
+		if _, saved := current.Colours.Network[name]; !saved && settings.EphemeralAdapter(name) && sw.colour == d.ephemeral[name] {
+			continue
+		}
+		s.Colours.Network[name] = sw.colour
 	}
 	return s
 }

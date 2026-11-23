@@ -9,8 +9,10 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"sync"
 	"time"
 
+	"github.com/nomad-software/qute"
 	"github.com/nomad-software/qute/qtcore"
 	"github.com/nomad-software/qute/qtgui"
 	"github.com/nomad-software/qute/qtwidgets"
@@ -66,6 +68,9 @@ type Window struct {
 		section
 		usage          usage.Network
 		adapters       map[string]*adapter
+		// ephemeral keeps session-only colours for transient virtual
+		// adapters not saved in settings.json.
+		ephemeral      map[string]string
 		received, sent *graph
 		legend         *legend
 	}
@@ -73,15 +78,21 @@ type Window struct {
 	// frames draws the graphs again between readings, as often as their
 	// lines move along by a pixel, so that they move smoothly.
 	frames *qtcore.QTimer
+	// closed says the window is closing, so background polls drop their
+	// results rather than touching destroyed widgets. polls counts in-flight
+	// background reads so tests can wait for them deterministically.
+	closed bool
+	polls  sync.WaitGroup
 }
 
 // section is the part of the window of one statistic: its heading, where
 // what went wrong reading it is said, and the timer it is read by.
 type section struct {
 	*qtwidgets.QWidget
-	layout *qtwidgets.QVBoxLayout
-	errors *qtwidgets.QLabel
-	timer  *qtcore.QTimer
+	layout  *qtwidgets.QVBoxLayout
+	errors  *qtwidgets.QLabel
+	timer   *qtcore.QTimer
+	reading bool
 }
 
 // adapter is what is kept of a network adapter.
@@ -131,10 +142,10 @@ func NewWindow(path string, source stats.Source) *Window {
 	// the window bigger or smaller by.
 	w.StatusBar().SetSizeGripEnabled(true)
 
-	w.cpu.timer = w.newTimer(w.config.Intervals.CPU, w.sampleCPU)
-	w.memory.timer = w.newTimer(w.config.Intervals.Memory, w.sampleMemory)
-	w.network.timer = w.newTimer(w.config.Intervals.Network, w.sampleNetwork)
-	w.processes.timer = w.newTimer(w.config.Intervals.Processes, w.sampleProcesses)
+	w.cpu.timer = w.newTimer(w.config.Intervals.CPU, w.pollCPU)
+	w.memory.timer = w.newTimer(w.config.Intervals.Memory, w.pollMemory)
+	w.network.timer = w.newTimer(w.config.Intervals.Network, w.pollNetwork)
+	w.processes.timer = w.newTimer(w.config.Intervals.Processes, w.pollProcesses)
 	w.frames = qtcore.NewQTimer(w)
 	// A frame is a few milliseconds, which a coarse timer is out by.
 	w.frames.SetTimerType(qtcore.PreciseTimer)
@@ -142,10 +153,36 @@ func NewWindow(path string, source stats.Source) *Window {
 	return w
 }
 
-// CloseEvent saves the settings, with the size of the window, as it closes.
+// CloseEvent stops the timers, marks the window closed so in-flight
+// background reads are dropped, and saves the settings as it closes.
 func (w *Window) CloseEvent(event *qtgui.QCloseEvent) {
+	w.closed = true
+	for _, t := range []*qtcore.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer, w.frames} {
+		t.Stop()
+	}
 	w.saveSettings()
 	w.Super().CloseEvent(event)
+}
+
+// poll reads a statistic on a goroutine of its own, unless a reading for the
+// section is already in flight, and applies the result on the GUI thread.
+func poll[T any](w *Window, s *section, read func() (T, error), apply func(T, error)) {
+	if s.reading || w.closed {
+		return
+	}
+	s.reading = true
+	w.polls.Add(1)
+	go func() {
+		defer w.polls.Done()
+		v, err := read()
+		qute.Post(func() {
+			s.reading = false
+			if w.closed {
+				return
+			}
+			apply(v, err)
+		})
+	}()
 }
 
 // newTabPage returns the page of a tab of the window, and its layout, with the
@@ -168,10 +205,10 @@ func (w *Window) Start() {
 	} else {
 		w.Show()
 	}
-	w.sampleCPU()
-	w.sampleMemory()
-	w.sampleNetwork()
-	w.sampleProcesses()
+	w.pollCPU()
+	w.pollMemory()
+	w.pollNetwork()
+	w.pollProcesses()
 	for _, t := range []*qtcore.QTimer{w.cpu.timer, w.memory.timer, w.network.timer, w.processes.timer} {
 		t.Start()
 	}
@@ -324,6 +361,7 @@ func (w *Window) makeMemory() {
 func (w *Window) makeNetwork() {
 	w.network.section = newSection("Network")
 	w.network.adapters = map[string]*adapter{}
+	w.network.ephemeral = map[string]string{}
 	w.network.received = newGraph()
 	w.network.received.title = "Download"
 	w.network.sent = newGraph()
@@ -343,12 +381,16 @@ func span(interval float64) time.Duration {
 	return history.Span(settings.Duration(interval))
 }
 
-// sampleCPU reads the times of the processors, and shows how busy they were
+// pollCPU reads the times of the processors on a background goroutine.
+func (w *Window) pollCPU() {
+	poll(w, &w.cpu.section, w.source.CPU, w.applyCPU)
+}
+
+// applyCPU records the times of the processors, and shows how busy they were
 // since they were last read. Until the second reading, and for a processor
 // until its own second, the lines are 0, drawn across the whole graph from
 // the first.
-func (w *Window) sampleCPU() {
-	c, err := w.source.CPU()
+func (w *Window) applyCPU(c stats.CPU, err error) {
 	w.cpu.report(err)
 	if err != nil {
 		return
@@ -427,9 +469,13 @@ func (w *Window) cpuPercent(s *history.Series) string {
 	return chart.FormatPercent(p.V)
 }
 
-// sampleMemory reads the use of memory and swap, and shows it.
-func (w *Window) sampleMemory() {
-	m, err := w.source.Memory()
+// pollMemory reads the use of memory and swap on a background goroutine.
+func (w *Window) pollMemory() {
+	poll(w, &w.memory.section, w.source.Memory, w.applyMemory)
+}
+
+// applyMemory records the use of memory and swap, and shows it.
+func (w *Window) applyMemory(m stats.Memory, err error) {
 	w.memory.report(err)
 	if err != nil {
 		return
@@ -509,11 +555,18 @@ func (w *Window) units() chart.Units {
 	}
 }
 
-// sampleNetwork reads the counters of the network adapters, and shows how
-// fast each received and sent since they were last read. An adapter seen for
-// the first time is given a colour, which the settings keep.
-func (w *Window) sampleNetwork() {
-	counters, err := w.source.Network()
+// pollNetwork reads the counters of the network adapters on a background
+// goroutine.
+func (w *Window) pollNetwork() {
+	poll(w, &w.network.section, w.source.Network, w.applyNetwork)
+}
+
+// applyNetwork records the counters of the network adapters, and shows how
+// fast each received and sent since they were last read. A persistent
+// adapter seen for the first time is given a colour in the settings; a
+// transient virtual one is given a colour for the session only, unless the
+// user customises it.
+func (w *Window) applyNetwork(counters map[string]stats.NetCounters, err error) {
 	w.network.report(err)
 	if err != nil {
 		return
@@ -525,9 +578,15 @@ func (w *Window) sampleNetwork() {
 		a.present = false
 	}
 	rates := w.network.usage.Update(now, counters)
+	present := make(map[string]bool, len(rates))
+	names := sortedKeys(rates)
 	// Adapters seen for the first time together are given colours in the
 	// order of their names, so that which gets which is the same each time.
-	for _, name := range sortedKeys(rates) {
+	// Persistent adapters are registered first so transient virtual ones do
+	// not take their palette slots or collide with them.
+	var newEphemeral []string
+	for _, name := range names {
+		present[name] = true
 		rate := rates[name]
 		a := w.network.adapters[name]
 		if a == nil {
@@ -539,8 +598,31 @@ func (w *Window) sampleNetwork() {
 		// graphs.
 		a.received.Record(now, s, 0, rate.Received)
 		a.sent.Record(now, s, 0, rate.Sent)
-		if _, given := w.config.Colours.Adapter(name); given {
+		if _, saved := w.config.Colours.Network[name]; saved {
+			continue
+		}
+		if settings.EphemeralAdapter(name) {
+			if _, ok := w.network.ephemeral[name]; !ok {
+				newEphemeral = append(newEphemeral, name)
+			}
+			continue
+		}
+		if colour, given := w.config.Colours.Adapter(name); given {
 			added = true
+			// If an active ephemeral adapter happened to hold this colour,
+			// reassign it so lines remain distinct.
+			for eName, eColour := range w.network.ephemeral {
+				if eColour == colour {
+					delete(w.network.ephemeral, eName)
+					newEphemeral = append(newEphemeral, eName)
+				}
+			}
+		}
+	}
+	slices.Sort(newEphemeral)
+	for _, name := range newEphemeral {
+		if _, saved := w.config.Colours.Network[name]; !saved {
+			w.network.ephemeral[name] = w.config.Colours.NextAdapterColour(w.network.ephemeral)
 		}
 	}
 	before := now.Add(-s)
@@ -554,12 +636,29 @@ func (w *Window) sampleNetwork() {
 		// off the left of the graphs, which a line of one point has.
 		if last, ok := a.received.Last(); !ok || last.T.Before(before) {
 			delete(w.network.adapters, name)
+			delete(w.network.ephemeral, name)
 		}
 	}
 	if added {
+		w.config.PruneAdapters(present, settings.MaxSavedAdapters)
 		w.saveConfig()
 	}
 	w.showNetwork()
+}
+
+// adapterColour returns the colour of the network adapter with the name,
+// from saved settings or, for an uncustomised ephemeral adapter, from the
+// session's ephemeral palette.
+func (w *Window) adapterColour(name string) string {
+	if colour, ok := w.config.Colours.Network[name]; ok {
+		return colour
+	}
+	if colour, ok := w.network.ephemeral[name]; ok {
+		return colour
+	}
+	colour := w.config.Colours.NextAdapterColour(w.network.ephemeral)
+	w.network.ephemeral[name] = colour
+	return colour
 }
 
 // showNetwork draws the graphs of what the network adapters received and
@@ -580,7 +679,7 @@ func (w *Window) showNetwork() {
 			continue
 		}
 		a := w.network.adapters[name]
-		colour, _ := w.config.Colours.Adapter(name)
+		colour := w.adapterColour(name)
 		// An adapter that has gone is not held, and its lines end at its
 		// last reading.
 		received = append(received, line{colour, a.received.Points(), a.present})
@@ -610,7 +709,14 @@ func sortedKeys[V any](m map[string]V) []string {
 // editSettings shows the settings, and puts them into effect if they are
 // changed.
 func (w *Window) editSettings() *settingsDialog {
-	return newSettingsDialog(w, w.config, len(w.cpu.cores), sortedKeys(w.config.Colours.Network), chart.DefaultMemoryMax(w.memory.last.Total), w.applySettings)
+	names := make(map[string]struct{}, len(w.config.Colours.Network)+len(w.network.adapters))
+	for name := range w.config.Colours.Network {
+		names[name] = struct{}{}
+	}
+	for name := range w.network.adapters {
+		names[name] = struct{}{}
+	}
+	return newSettingsDialogWithEphemeral(w, w.config, len(w.cpu.cores), sortedKeys(names), w.network.ephemeral, chart.DefaultMemoryMax(w.memory.last.Total), w.applySettings)
 }
 
 // applySettings puts the settings into effect, and saves them.

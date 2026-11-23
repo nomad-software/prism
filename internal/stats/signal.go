@@ -17,12 +17,19 @@ type Signal struct {
 // has been given to another.
 var ErrEnded = errors.New("the process has ended")
 
+// ErrInit is the error of signalling PID 1, which init runs as.
+var ErrInit = errors.New("PID 1 cannot be signalled")
+
 // signal sends the signal of the number to the process, if started says it
 // is still running and started when it did.
 func signal(p Process, started func(pid int) (uint64, bool), number int) error {
 	// A PID of 0 or less would signal a group of processes, not one.
 	if p.PID <= 0 {
 		return ErrEnded
+	}
+	// Never permit sending signals to init (PID 1).
+	if p.PID == 1 {
+		return ErrInit
 	}
 	if start, ok := started(p.PID); !ok || start != p.Start {
 		return ErrEnded

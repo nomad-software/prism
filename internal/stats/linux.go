@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -69,10 +71,11 @@ func (l Linux) Network() (map[string]NetCounters, error) {
 // its own clock runs at.
 const userHZ = 100
 
-// Processes reads /proc/<pid>/stat, /proc/<pid>/statm and /proc/<pid>/status
-// of every process, and /proc/<pid>/cmdline of one whose name the kernel cut
-// short. A process that cannot be read, as one that ended while the others
-// were being read, is left out.
+// Processes reads /proc/<pid>/stat and /proc/<pid>/statm of every process,
+// taking its UID from the /proc/<pid> directory itself, and
+// /proc/<pid>/cmdline of one whose name the kernel cut short. A process that
+// cannot be read, as one that ended while the others were being read, is left
+// out.
 func (l Linux) Processes() ([]Process, error) {
 	dir := filepath.Join(l.Root, "proc")
 	entries, err := os.ReadDir(dir)
@@ -80,14 +83,28 @@ func (l Linux) Processes() ([]Process, error) {
 		return nil, err
 	}
 	page := uint64(os.Getpagesize())
-	var processes []Process
+	buf := make([]byte, 4096)
+	processes := make([]Process, 0, len(entries))
 	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil || pid <= 0 {
 			continue
 		}
-		if p, err := readProcess(filepath.Join(dir, e.Name())); err == nil {
-			p.PID, p.Memory = pid, p.Memory*page
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok {
+			continue
+		}
+		var p Process
+		p, buf, err = readProcess(filepath.Join(dir, e.Name()), buf)
+		if err == nil {
+			p.PID, p.UID, p.Memory = pid, int(st.Uid), p.Memory*page
 			processes = append(processes, p)
 		}
 	}
@@ -95,34 +112,55 @@ func (l Linux) Processes() ([]Process, error) {
 }
 
 // readProcess reads the process whose folder in /proc is at dir, all but its
-// PID, with its memory in pages.
-func readProcess(dir string) (Process, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "stat"))
-	if err != nil {
-		return Process{}, err
+// PID and UID, with its memory in pages, reusing buf for file reads.
+func readProcess(dir string, buf []byte) (Process, []byte, error) {
+	var data []byte
+	var err error
+	if data, buf, err = readInto(filepath.Join(dir, "stat"), buf); err != nil {
+		return Process{}, buf, err
 	}
 	p, err := parseProcessStat(data)
 	if err != nil {
-		return Process{}, err
+		return Process{}, buf, err
 	}
-	if data, err = os.ReadFile(filepath.Join(dir, "statm")); err != nil {
-		return Process{}, err
+	if data, buf, err = readInto(filepath.Join(dir, "statm"), buf); err != nil {
+		return Process{}, buf, err
 	}
 	if p.Memory, err = parseStatm(data); err != nil {
-		return Process{}, err
-	}
-	if data, err = os.ReadFile(filepath.Join(dir, "status")); err != nil {
-		return Process{}, err
-	}
-	if p.UID, err = parseStatusUID(data); err != nil {
-		return Process{}, err
+		return Process{}, buf, err
 	}
 	if len(p.Name) == commLength {
-		if data, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
+		if data, buf, err = readInto(filepath.Join(dir, "cmdline"), buf); err == nil {
 			p.Name = fullName(p.Name, data)
 		}
 	}
-	return p, nil
+	return p, buf, nil
+}
+
+// readInto reads path into buf, growing it if needed, and returns the bytes
+// read and the buffer to reuse.
+func readInto(path string, buf []byte) ([]byte, []byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, buf, err
+	}
+	defer f.Close()
+	n := 0
+	for {
+		if n == len(buf) {
+			next := make([]byte, max(len(buf)*2, 4096))
+			copy(next, buf[:n])
+			buf = next
+		}
+		m, err := f.Read(buf[n:])
+		n += m
+		if err == io.EOF {
+			return buf[:n], buf, nil
+		}
+		if err != nil {
+			return nil, buf, err
+		}
+	}
 }
 
 // Signal sends the signal to the process, if /proc/<pid>/stat says it
@@ -149,30 +187,47 @@ const pfKthread = 0x00200000
 // last closing bracket. Of them, ppid is the 2nd, flags the 7th, utime and
 // stime the 12th and 13th, and starttime the 20th, in ticks of userHZ.
 func parseProcessStat(data []byte) (Process, error) {
-	s := string(bytes.TrimSpace(data))
-	left, right := strings.IndexByte(s, '('), strings.LastIndexByte(s, ')')
+	data = bytes.TrimSpace(data)
+	left, right := bytes.IndexByte(data, '('), bytes.LastIndexByte(data, ')')
 	if left < 0 || right < left {
 		return Process{}, errors.New("stat: no name")
 	}
-	fields := strings.Fields(s[right+1:])
 	const ppid, flags, utime, stime, starttime = 1, 6, 11, 12, 19
-	if len(fields) <= starttime {
-		return Process{}, errors.New("stat: too few fields")
-	}
-	var n [5]uint64
-	for i, f := range []int{utime, stime, starttime, flags, ppid} {
-		v, err := strconv.ParseUint(fields[f], 10, 64)
+	rest := data[right+1:]
+	var ppidVal, flagsVal, utimeVal, stimeVal, startVal uint64
+	for idx := 0; idx <= starttime; idx++ {
+		var field []byte
+		field, rest = nextField(rest)
+		if len(field) == 0 {
+			return Process{}, errors.New("stat: too few fields")
+		}
+		var dst *uint64
+		switch idx {
+		case ppid:
+			dst = &ppidVal
+		case flags:
+			dst = &flagsVal
+		case utime:
+			dst = &utimeVal
+		case stime:
+			dst = &stimeVal
+		case starttime:
+			dst = &startVal
+		default:
+			continue
+		}
+		v, err := parseUint(field)
 		if err != nil {
 			return Process{}, fmt.Errorf("stat: %w", err)
 		}
-		n[i] = v
+		*dst = v
 	}
 	return Process{
-		Name:   s[left+1 : right],
-		CPU:    time.Duration(n[0]+n[1]) * (time.Second / userHZ),
-		Start:  n[2],
-		Kernel: n[3]&pfKthread != 0,
-		PPID:   int(n[4]),
+		Name:   string(data[left+1 : right]),
+		CPU:    time.Duration(utimeVal+stimeVal) * (time.Second / userHZ),
+		Start:  startVal,
+		Kernel: flagsVal&pfKthread != 0,
+		PPID:   int(ppidVal),
 	}, nil
 }
 
@@ -192,45 +247,95 @@ const commLength = 15
 // name kept is returned.
 func fullName(name string, cmdline []byte) string {
 	first, _, _ := bytes.Cut(cmdline, []byte{0})
-	full := filepath.Base(string(first))
-	if !strings.HasPrefix(full, name) {
-		program, _, _ := strings.Cut(string(first), " ")
-		if full = filepath.Base(program); !strings.HasPrefix(full, name) {
+	full := baseName(first)
+	if !hasPrefixString(full, name) {
+		program, _, _ := bytes.Cut(first, []byte{' '})
+		if full = baseName(program); !hasPrefixString(full, name) {
 			return name
 		}
 	}
 	rest := full[len(name):]
-	if i := strings.IndexAny(rest, " \t"); i >= 0 {
+	if i := bytes.IndexAny(rest, " \t"); i >= 0 {
 		rest = rest[:i]
 	}
-	return name + strings.TrimSuffix(rest, ":")
+	rest = bytes.TrimSuffix(rest, []byte{':'})
+	if len(rest) == 0 {
+		return name
+	}
+	return name + string(rest)
 }
 
-// parseStatusUID reads the real user ID of a process from its
-// /proc/<pid>/status, the first of the IDs on its "Uid:" line.
-func parseStatusUID(data []byte) (int, error) {
-	for line := range strings.Lines(string(data)) {
-		rest, ok := strings.CutPrefix(line, "Uid:")
-		if !ok {
-			continue
-		}
-		fields := strings.Fields(rest)
-		if len(fields) == 0 {
-			break
-		}
-		return strconv.Atoi(fields[0])
+// baseName returns the last path element of b without allocating a string.
+func baseName(b []byte) []byte {
+	for len(b) > 0 && b[len(b)-1] == '/' {
+		b = b[:len(b)-1]
 	}
-	return 0, errors.New("status: no Uid")
+	if i := bytes.LastIndexByte(b, '/'); i >= 0 {
+		return b[i+1:]
+	}
+	return b
+}
+
+// hasPrefixString reports whether b starts with prefix without allocating.
+func hasPrefixString(b []byte, prefix string) bool {
+	if len(b) < len(prefix) {
+		return false
+	}
+	for i := range len(prefix) {
+		if b[i] != prefix[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // parseStatm reads how many pages of a process are resident from its
 // /proc/<pid>/statm, which is the second field.
 func parseStatm(data []byte) (uint64, error) {
-	fields := strings.Fields(string(data))
-	if len(fields) < 2 {
+	_, rest := nextField(data)
+	field, _ := nextField(rest)
+	if len(field) == 0 {
 		return 0, errors.New("statm: too few fields")
 	}
-	return strconv.ParseUint(fields[1], 10, 64)
+	return parseUint(field)
+}
+
+// nextField splits the next run of non-space ASCII bytes from b and returns
+// it with the remainder.
+func nextField(b []byte) (field, rest []byte) {
+	i := 0
+	for i < len(b) && isSpace(b[i]) {
+		i++
+	}
+	start := i
+	for i < len(b) && !isSpace(b[i]) {
+		i++
+	}
+	return b[start:i], b[i:]
+}
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f'
+}
+
+// parseUint reads an unsigned decimal integer from b without converting it
+// to a string.
+func parseUint(b []byte) (uint64, error) {
+	if len(b) == 0 {
+		return 0, strconv.ErrSyntax
+	}
+	var n uint64
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, strconv.ErrSyntax
+		}
+		d := uint64(c - '0')
+		if n > (math.MaxUint64-d)/10 {
+			return 0, strconv.ErrRange
+		}
+		n = n*10 + d
+	}
+	return n, nil
 }
 
 // readCounter reads a file that holds a single number.
@@ -239,7 +344,7 @@ func readCounter(path string) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return strconv.ParseUint(string(bytes.TrimSpace(data)), 10, 64)
+	return parseUint(bytes.TrimSpace(data))
 }
 
 // parseStat reads the lines of /proc/stat about the processors: "cpu", which

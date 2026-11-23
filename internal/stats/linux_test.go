@@ -314,23 +314,11 @@ func TestFullName(t *testing.T) {
 	}
 }
 
-func TestParseStatusUID(t *testing.T) {
-	status := "Name:\tbash\nUmask:\t0022\nState:\tS (sleeping)\nUid:\t1000\t0\t1000\t1000\nGid:\t100\t100\t100\t100\n"
-	if uid, err := parseStatusUID([]byte(status)); err != nil || uid != 1000 {
-		t.Errorf("parseStatusUID = %d, %v, want the real ID", uid, err)
-	}
-	for _, bad := range []string{"", "Name:\tx\n", "Uid:\n", "Uid:\tx\t0\n"} {
-		if _, err := parseStatusUID([]byte(bad)); err == nil {
-			t.Errorf("parseStatusUID(%q) succeeded", bad)
-		}
-	}
-}
-
 func TestParseStatm(t *testing.T) {
 	if n, err := parseStatm([]byte("5000 1200 300 1 0 800 0\n")); err != nil || n != 1200 {
 		t.Errorf("parseStatm = %d, %v", n, err)
 	}
-	for _, bad := range []string{"", "5000", "5000 x"} {
+	for _, bad := range []string{"", "5000", "5000 x", "5000 999999999999999999999999"} {
 		if _, err := parseStatm([]byte(bad)); err == nil {
 			t.Errorf("parseStatm(%q) succeeded", bad)
 		}
@@ -342,15 +330,8 @@ func TestLinuxProcesses(t *testing.T) {
 	root := writeFiles(t, map[string]string{
 		"proc/1/stat":       "1 (init)" + fields,
 		"proc/1/statm":      "100 10 0 0 0 0 0\n",
-		"proc/1/status":     "Name:\tinit\nUid:\t0\t0\t0\t0\n",
 		"proc/6/stat":       "6 (bad statm)" + fields,
 		"proc/6/statm":      "100\n",
-		"proc/6/status":     "Uid:\t0\t0\t0\t0\n",
-		"proc/7/stat":       "7 (bad status)" + fields,
-		"proc/7/statm":      "100 10 0 0 0 0 0\n",
-		"proc/7/status":     "Uid:\tnobody\n",
-		"proc/4/stat":       "4 (no status)" + fields,
-		"proc/4/statm":      "100 10 0 0 0 0 0\n",
 		"proc/2/stat":       "2 (no statm)" + fields,
 		"proc/3/stat":       "3 (broken) S\n",
 		"proc/3/statm":      "100 10 0 0 0 0 0\n",
@@ -364,22 +345,21 @@ func TestLinuxProcesses(t *testing.T) {
 		"proc/10/somewhere": "",
 		"proc/8/stat":       "8 (polkit-kde-auth)" + fields,
 		"proc/8/statm":      "100 10 0 0 0 0 0\n",
-		"proc/8/status":     "Uid:\t1000\t1000\t1000\t1000\n",
 		"proc/8/cmdline":    "/usr/lib/polkit-kde-authentication-agent-1\x00",
 		"proc/9/stat":       "9 (no-cmdline-file)" + fields,
 		"proc/9/statm":      "100 10 0 0 0 0 0\n",
-		"proc/9/status":     "Uid:\t1000\t1000\t1000\t1000\n",
 	})
 	l := Linux{Root: root}
 	got, err := l.Processes()
 	if err != nil {
 		t.Fatal(err)
 	}
+	uid := os.Getuid()
 	memory := 10 * uint64(os.Getpagesize())
 	want := []Process{
-		{PID: 1, PPID: 1, Name: "init", Start: 777, CPU: 2 * time.Second, Memory: memory},
-		{PID: 8, PPID: 1, UID: 1000, Name: "polkit-kde-authentication-agent-1", Start: 777, CPU: 2 * time.Second, Memory: memory},
-		{PID: 9, PPID: 1, UID: 1000, Name: "no-cmdline-file", Start: 777, CPU: 2 * time.Second, Memory: memory},
+		{PID: 1, PPID: 1, UID: uid, Name: "init", Start: 777, CPU: 2 * time.Second, Memory: memory},
+		{PID: 8, PPID: 1, UID: uid, Name: "polkit-kde-authentication-agent-1", Start: 777, CPU: 2 * time.Second, Memory: memory},
+		{PID: 9, PPID: 1, UID: uid, Name: "no-cmdline-file", Start: 777, CPU: 2 * time.Second, Memory: memory},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Processes = %+v, want %+v", got, want)
@@ -388,10 +368,14 @@ func TestLinuxProcesses(t *testing.T) {
 		t.Error("Processes succeeded without /proc")
 	}
 
+	// PID 1 (init) is never signalled, even when its start time matches.
+	if err := l.Signal(Process{PID: 1, Start: 777}, 0); !errors.Is(err, ErrInit) {
+		t.Errorf("Signal(PID 1) = %v, want ErrInit", err)
+	}
 	// A process that has ended, or whose PID is another's now, is not sent
 	// the signal; nor is a PID that would be a group's. None of these
 	// reaches a process of the system's.
-	for _, p := range []Process{{PID: 1, Start: 778}, {PID: 3}, {PID: 5}, {PID: 0}, {PID: -1}} {
+	for _, p := range []Process{{PID: 8, Start: 778}, {PID: 3}, {PID: 5}, {PID: 0}, {PID: -1}} {
 		if err := l.Signal(p, 0); !errors.Is(err, ErrEnded) {
 			t.Errorf("Signal(%+v) = %v, want ErrEnded", p, err)
 		}

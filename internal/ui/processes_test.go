@@ -846,3 +846,62 @@ func TestProcessesUnchosen(t *testing.T) {
 		t.Errorf("signalled %q", tw.source.signalled)
 	}
 }
+
+// TestProcessItemsReusedInPlace verifies that refreshing the process list
+// updates existing QTreeWidgetItem rows in place rather than clearing and
+// recreating them, and safely reparents surviving children when a parent exits.
+func TestProcessItemsReusedInPlace(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessView = settings.ViewTree
+		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
+	})
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{
+			{PID: 1, Name: "init", Start: 1, Memory: 1 << 20},
+			{PID: 10, PPID: 1, Name: "parent", Start: 2, Memory: 2 << 20},
+			{PID: 20, PPID: 10, Name: "child", Start: 3, Memory: 3 << 20},
+		}
+	})
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		all, _ := items(tw)
+		initPtr, childPtr := all[0].Ptr(), all[2].Ptr()
+
+		// Updating stats keeps the exact same QTreeWidgetItem C++ objects.
+		tw.advance(2 * time.Second)
+		tw.source.set(func(f *fakeSource) {
+			f.procs = []stats.Process{
+				{PID: 1, Name: "init", Start: 1, CPU: time.Second, Memory: 4 << 20},
+				{PID: 10, PPID: 1, Name: "parent", Start: 2, Memory: 2 << 20},
+				{PID: 20, PPID: 10, Name: "child", Start: 3, CPU: 2 * time.Second, Memory: 5 << 20},
+			}
+		})
+		tw.sampleProcesses()
+		all, _ = items(tw)
+		if all[0].Ptr() != initPtr || all[2].Ptr() != childPtr {
+			t.Error("QTreeWidgetItem objects were recreated instead of updated in place")
+		}
+		if got := all[0].Text(colProcessMemory); got != "4.0 MiB" {
+			t.Errorf("init memory = %q, want 4.0 MiB", got)
+		}
+
+		// When the parent exits, its surviving child is detached and
+		// reparented cleanly without being destroyed or recreated.
+		tw.advance(2 * time.Second)
+		tw.source.set(func(f *fakeSource) {
+			f.procs = []stats.Process{
+				{PID: 1, Name: "init", Start: 1, CPU: time.Second, Memory: 4 << 20},
+				{PID: 20, PPID: 1, Name: "child", Start: 3, CPU: 3 * time.Second, Memory: 5 << 20},
+			}
+		})
+		tw.sampleProcesses()
+		all, d := items(tw)
+		if len(all) != 2 || all[0].Ptr() != initPtr || all[1].Ptr() != childPtr {
+			t.Errorf("after parent exit: len=%d, pointers preserved=%v", len(all), len(all) == 2 && all[0].Ptr() == initPtr && all[1].Ptr() == childPtr)
+		}
+		if !slices.Equal(d, []int{0, 1}) {
+			t.Errorf("depths after reparent = %v, want [0 1]", d)
+		}
+	})
+}

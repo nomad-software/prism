@@ -10,9 +10,11 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/nomad-software/qute"
 	"github.com/nomad-software/qute/qtcore"
 	"github.com/nomad-software/qute/qtgui"
 	"github.com/nomad-software/qute/qtwidgets"
@@ -133,6 +135,19 @@ func (tw *testWindow) advance(d time.Duration) {
 	tw.clock = tw.clock.Add(d)
 }
 
+// Synchronous sampling helpers for tests and benchmarks running on the GUI
+// thread.
+func (tw *testWindow) sampleCPU()       { tw.applyCPU(tw.source.CPU()) }
+func (tw *testWindow) sampleMemory()    { tw.applyMemory(tw.source.Memory()) }
+func (tw *testWindow) sampleNetwork()   { tw.applyNetwork(tw.source.Network()) }
+func (tw *testWindow) sampleProcesses() { tw.applyProcesses(tw.source.Processes()) }
+
+// waitPolls waits for any in-flight background polls to finish and post
+// their results to the GUI thread. Must be called outside qutetest.Run.
+func (tw *testWindow) waitPolls() {
+	tw.polls.Wait()
+}
+
 func TestNewWindow(t *testing.T) {
 	tw := newTestWindow(t, nil)
 	qutetest.Run(t, func() {
@@ -192,22 +207,23 @@ func TestStart(t *testing.T) {
 	})
 	qutetest.Run(t, func() {
 		tw.Start()
-		defer func() {
-			for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
-				if !timer.IsActive() {
-					t.Error("a timer is not running after Start")
-				}
-				timer.Stop()
+		for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
+			if !timer.IsActive() {
+				t.Error("a timer is not running after Start")
 			}
-			// As often as the lines move by a pixel.
-			if !tw.frames.IsActive() || tw.frames.Interval() != tw.frameInterval() {
-				t.Errorf("frames every %d ms, running %v, want %d", tw.frames.Interval(), tw.frames.IsActive(), tw.frameInterval())
-			}
-			tw.frames.Stop()
-		}()
+			timer.Stop()
+		}
+		// As often as the lines move by a pixel.
+		if !tw.frames.IsActive() || tw.frames.Interval() != tw.frameInterval() {
+			t.Errorf("frames every %d ms, running %v, want %d", tw.frames.Interval(), tw.frames.IsActive(), tw.frameInterval())
+		}
+		tw.frames.Stop()
 		if !tw.IsMaximized() && !tw.IsFullScreen() && tw.WindowState()&qtcore.WindowMaximized == 0 {
 			t.Error("the window is not maximised, as the settings say it was")
 		}
+	})
+	tw.waitPolls()
+	qutetest.Run(t, func() {
 		// Every graph is drawn across from the first reading: memory at
 		// what it is, and the processors and adapters at 0 until the
 		// second.
@@ -694,11 +710,12 @@ func TestAnimation(t *testing.T) {
 	})
 	qutetest.Run(t, func() {
 		tw.Start()
-		defer func() {
-			for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer, tw.frames} {
-				timer.Stop()
-			}
-		}()
+		for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer, tw.frames} {
+			timer.Stop()
+		}
+	})
+	tw.waitPolls()
+	qutetest.Run(t, func() {
 		// A graph's lines move by a pixel in the time it spans over its
 		// width in pixels, and the frames come as often as the fastest
 		// moves.
@@ -948,10 +965,11 @@ func TestStartThemedNotMaximised(t *testing.T) {
 		if !tw.IsVisible() || tw.IsMaximized() {
 			t.Error("the window is not shown as it was, unmaximised")
 		}
-		for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer} {
+		for _, timer := range []*qtcore.QTimer{tw.cpu.timer, tw.memory.timer, tw.network.timer, tw.processes.timer, tw.frames} {
 			timer.Stop()
 		}
 	})
+	tw.waitPolls()
 }
 
 func TestMemoryScaleFitsSwap(t *testing.T) {
@@ -1224,4 +1242,166 @@ func TestActivate(t *testing.T) {
 			t.Errorf("token = %q after none", got)
 		}
 	})
+}
+
+// blockingSource blocks Processes until released, letting tests verify that
+// polling runs off the GUI thread and conflates overlapping ticks.
+type blockingSource struct {
+	fakeSource
+	entered chan struct{}
+	release chan struct{}
+	calls   atomic.Int32
+	onGUI   atomic.Bool
+}
+
+func (b *blockingSource) Processes() ([]stats.Process, error) {
+	if qute.IsGUIThread() {
+		b.onGUI.Store(true)
+	}
+	if b.calls.Add(1) == 1 {
+		close(b.entered)
+		<-b.release
+	}
+	return b.fakeSource.Processes()
+}
+
+func TestAsyncPolling(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := settings.Defaults().Save(path); err != nil {
+		t.Fatal(err)
+	}
+	src := &blockingSource{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	src.procs = []stats.Process{{PID: 42, Name: "worker", UID: 1000}}
+
+	var w *Window
+	qutetest.Run(t, func() {
+		w = NewWindow(path, src)
+		w.pollProcesses()
+		// A second tick while the first is in flight is conflated.
+		w.pollProcesses()
+	})
+	<-src.entered
+	// The GUI thread remains responsive while Processes() is blocked.
+	qutetest.Run(t, func() {
+		if w.WindowTitle() != "Prism" {
+			t.Errorf("title = %q", w.WindowTitle())
+		}
+		// Another overlapping tick while still blocked does not spawn a
+		// second concurrent call.
+		w.pollProcesses()
+	})
+	if got := src.calls.Load(); got != 1 {
+		t.Errorf("Processes called %d times while blocked, want 1", got)
+	}
+	if src.onGUI.Load() {
+		t.Error("Processes ran on the GUI thread")
+	}
+	close(src.release)
+	w.polls.Wait()
+	qutetest.Run(t, func() {
+		if len(w.processes.list) != 1 || w.processes.list[0].PID != 42 {
+			t.Errorf("processes = %+v, want PID 42", w.processes.list)
+		}
+		w.Close()
+		w.DeleteLater()
+	})
+
+	// Closing the window while a poll is in flight drops the result safely.
+	src2 := &blockingSource{
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	src2.procs = []stats.Process{{PID: 99, Name: "late", UID: 1000}}
+	qutetest.Run(t, func() {
+		w = NewWindow(path, src2)
+		w.pollProcesses()
+	})
+	<-src2.entered
+	qutetest.Run(t, func() {
+		w.Close()
+		w.DeleteLater()
+	})
+	close(src2.release)
+	w.polls.Wait()
+	qutetest.Run(t, func() {})
+}
+
+func TestEphemeralAndPrunedAdapters(t *testing.T) {
+	tw := newTestWindow(t, nil)
+	tw.source.set(func(f *fakeSource) {
+		f.network = map[string]stats.NetCounters{
+			"eth0":       {Received: 100},
+			"veth8a3f91": {Received: 200},
+			"cali12345":  {Received: 300},
+			"tun0":       {Received: 400},
+		}
+	})
+	qutetest.Run(t, func() {
+		tw.sampleNetwork()
+		// All four are graphed and listed in the legend with distinct colours.
+		if len(tw.network.legend.entries) != 4 {
+			t.Fatalf("legend has %d entries, want 4", len(tw.network.legend.entries))
+		}
+		seen := map[string]bool{}
+		for _, e := range tw.network.legend.entries {
+			if seen[e.colour] {
+				t.Errorf("duplicate colour %q", e.colour)
+			}
+			seen[e.colour] = true
+		}
+	})
+	// Only persistent eth0 was saved to settings.json.
+	saved := settings.Load(tw.path).Colours.Network
+	if len(saved) != 1 || saved["eth0"] == "" {
+		t.Errorf("saved colours = %v, want only eth0", saved)
+	}
+
+	// Opening and accepting Settings without changing ephemeral colours does
+	// not persist them; customising one via its swatch does.
+	qutetest.Run(t, func() {
+		d := tw.editSettings()
+		tw.applySettings(d.chosen(tw.config))
+		d.Reject()
+		if len(tw.config.Colours.Network) != 1 {
+			t.Errorf("Colours.Network after unchanged settings = %v, want only eth0", tw.config.Colours.Network)
+		}
+		for _, e := range tw.network.legend.entries {
+			if e.label == "tun0" {
+				e.setColour("#abcdef")
+			}
+		}
+	})
+	saved = settings.Load(tw.path).Colours.Network
+	if saved["tun0"] != "#abcdef" {
+		t.Errorf("customised tun0 colour = %q, want #abcdef", saved["tun0"])
+	}
+
+	// Once ephemeral adapters disappear and leave the graph, their session
+	// colours are forgotten too.
+	tw.source.set(func(f *fakeSource) {
+		f.network = map[string]stats.NetCounters{"eth0": {Received: 100}}
+	})
+	tw.advance(2 * time.Minute)
+	qutetest.Run(t, func() {
+		tw.sampleNetwork()
+		if len(tw.network.ephemeral) != 0 {
+			t.Errorf("ephemeral colours left behind: %v", tw.network.ephemeral)
+		}
+	})
+
+	// Many transient non-ephemeral adapters are pruned to MaxSavedAdapters.
+	for i := range settings.MaxSavedAdapters + 10 {
+		name := fmt.Sprintf("usb%d", i)
+		tw.source.set(func(f *fakeSource) {
+			f.network = map[string]stats.NetCounters{"eth0": {}, name: {}}
+		})
+		tw.advance(2 * time.Second)
+		qutetest.Run(t, tw.sampleNetwork)
+	}
+	if got := len(settings.Load(tw.path).Colours.Network); got > settings.MaxSavedAdapters {
+		t.Errorf("saved %d adapters, want at most %d", got, settings.MaxSavedAdapters)
+	}
 }

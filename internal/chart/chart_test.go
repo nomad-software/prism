@@ -1,6 +1,7 @@
 package chart
 
 import (
+	"math"
 	"reflect"
 	"testing"
 	"time"
@@ -129,6 +130,13 @@ func TestRateTopBits(t *testing.T) {
 	// An idle adapter is drawn to 1 kb/s.
 	if got := u.RateTop(0); got != 1000.0/8 {
 		t.Errorf("RateTop(0) = %v", got)
+	}
+	// Non-finite or negative rates fall back to the minimum scale instead of
+	// looping forever.
+	for _, bad := range []float64{math.NaN(), math.Inf(1), math.Inf(-1), -100, math.MaxFloat64} {
+		if got := u.RateTop(bad); got != 1000.0/8 {
+			t.Errorf("RateTop(%v) = %v, want %v", bad, got, 1000.0/8)
+		}
 	}
 }
 

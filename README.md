@@ -107,14 +107,16 @@ only what is new of them, unless the scale, size or colours change.
 - **Signals**: choose a process, then a signal (SIGKILL unless another is
   chosen), and **Send Signal** sends it; the status bar says whether it was
   sent. A process that has ended in the meantime is not sent it, even if its
-  PID has been given to another.
+  PID has been given to another, and PID 1 is never signalled.
 
 ### Where the statistics come from
 
 `/proc/stat`, `/proc/meminfo`, `/sys/class/net/*/statistics/{rx,tx}_bytes`,
-and for each process `/proc/<pid>/stat`, `/proc/<pid>/statm` and
-`/proc/<pid>/status`, with `/proc/<pid>/cmdline` for the full name of one
-whose name the kernel cuts short at 15 characters, and nothing else.
+and for each process `/proc/<pid>/stat` and `/proc/<pid>/statm` (with its
+owner UID taken from the `/proc/<pid>` directory itself), plus
+`/proc/<pid>/cmdline` for the full name of one whose name the kernel cuts
+short at 15 characters, and nothing else. Readings run off the UI thread so
+slow `/proc` reads never stall the window.
 
 ## Settings
 
@@ -141,8 +143,11 @@ is built with).
   table of the colours of the grid, memory, swap, all processors together,
   each processor, and each network adapter that has been seen, under a
   heading for each. Click a swatch to choose
-  another colour; colours can be translucent. An adapter is given a colour
-  when it is first seen, and keeps it when it goes away. **Use Default
+  another colour; colours can be translucent. Persistent adapters are given
+  a colour when first seen and keep it when they go away (absent
+  uncustomised adapters are pruned once more than 32 are saved); transient
+  virtual interfaces (`veth*`, `cali*`, `br-*`, `vnet*`, `tun*`, `tap*`)
+  are given colours for the session only unless customised. **Use Default
   Colours** puts back the colours alone. The default colours are the eight
   accents of Solarized, which read well on light and dark alike, on a grid of
   the warm grey of Ubuntu's Ambiance. Each processor's colour is across the

@@ -6,6 +6,7 @@ package settings
 
 import (
 	"encoding/json"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -143,6 +144,57 @@ type Settings struct {
 	// window, by the names of the adapters. An adapter without one is shown
 	// by its own name.
 	AdapterAliases map[string]string `json:"adapterAliases,omitempty"`
+}
+
+// MaxSavedAdapters is the maximum number of network adapter colours kept in
+// settings.json before absent, uncustomized entries are pruned.
+const MaxSavedAdapters = 32
+
+// ephemeralPrefixes are prefixes of transient virtual network interfaces
+// created and destroyed dynamically by container runtimes, VMs and tunnels.
+var ephemeralPrefixes = []string{"veth", "cali", "br-", "vnet", "tun", "tap"}
+
+// EphemeralAdapter reports whether name is a transient virtual interface
+// whose colour should not be persisted automatically when discovered.
+func EphemeralAdapter(name string) bool {
+	for _, prefix := range ephemeralPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// PruneAdapters trims s.Colours.Network down to at most limit entries by
+// removing adapters that are neither active nor customized (hidden or given
+// an alias), removing ephemeral adapters first. It reports whether any entry
+// was removed.
+func (s *Settings) PruneAdapters(active map[string]bool, limit int) bool {
+	if len(s.Colours.Network) <= limit {
+		return false
+	}
+	var ephemeral, other []string
+	for _, name := range slices.Sorted(maps.Keys(s.Colours.Network)) {
+		if active[name] || !s.Shown(name) || s.AdapterAliases[name] != "" {
+			continue
+		}
+		if EphemeralAdapter(name) {
+			ephemeral = append(ephemeral, name)
+		} else {
+			other = append(other, name)
+		}
+	}
+	pruned := false
+	for _, list := range [][]string{ephemeral, other} {
+		for _, name := range list {
+			if len(s.Colours.Network) <= limit {
+				return pruned
+			}
+			delete(s.Colours.Network, name)
+			pruned = true
+		}
+	}
+	return pruned
 }
 
 // Shown says whether the network adapter with the name is shown.

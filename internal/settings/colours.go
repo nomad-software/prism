@@ -123,17 +123,26 @@ func (c *Colours) Adapter(name string) (colour string, added bool) {
 	if c.Network == nil {
 		c.Network = map[string]string{}
 	}
-	used := make(map[string]bool, len(c.Network))
+	colour = c.NextAdapterColour(nil)
+	c.Network[name] = colour
+	return colour, true
+}
+
+// NextAdapterColour returns the first adapter palette colour not already
+// assigned in c.Network or extra, without modifying c.Network.
+func (c Colours) NextAdapterColour(extra map[string]string) string {
+	used := make(map[string]bool, len(c.Network)+len(extra))
 	for _, colour := range c.Network {
 		used[colour] = true
 	}
+	for _, colour := range extra {
+		used[colour] = true
+	}
 	for i := 0; ; i++ {
-		if colour = variant(adapterColours, i); !used[colour] {
-			break
+		if colour := variant(adapterColours, i); !used[colour] {
+			return colour
 		}
 	}
-	c.Network[name] = colour
-	return colour, true
 }
 
 // normalise puts a default in place of each colour that is unusable. An

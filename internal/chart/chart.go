@@ -146,7 +146,7 @@ func PercentLabels() []string {
 func (u Units) RateTop(largest float64) float64 {
 	base, factor := u.base(), u.rateFactor()
 	largest *= factor
-	if largest <= base {
+	if math.IsNaN(largest) || math.IsInf(largest, 0) || largest <= base {
 		return base / factor
 	}
 	unit := 1.0

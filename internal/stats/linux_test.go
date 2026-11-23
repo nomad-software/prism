@@ -391,10 +391,14 @@ func TestLinuxProcesses(t *testing.T) {
 	// A process that has ended, or whose PID is another's now, is not sent
 	// the signal; nor is a PID that would be a group's. None of these
 	// reaches a process of the system's.
-	for _, p := range []Process{{PID: 1, Start: 778}, {PID: 3}, {PID: 5}, {PID: 0}, {PID: -1}} {
+	for _, p := range []Process{{PID: 8, Start: 778}, {PID: 3}, {PID: 5}, {PID: 0}, {PID: -1}} {
 		if err := l.Signal(p, 0); !errors.Is(err, ErrEnded) {
 			t.Errorf("Signal(%+v) = %v, want ErrEnded", p, err)
 		}
+	}
+	// Nor is init, though it runs and started when it did.
+	if err := l.Signal(Process{PID: 1, Start: 777}, 0); !errors.Is(err, ErrInit) {
+		t.Errorf("Signal(init) = %v, want ErrInit", err)
 	}
 }
 
@@ -415,5 +419,38 @@ func TestSignalSelf(t *testing.T) {
 	}
 	if err := New().Signal(self, 0); err != nil {
 		t.Errorf("Signal = %v", err)
+	}
+}
+
+// BenchmarkProcesses times a reading of every process of the system it runs
+// on.
+func BenchmarkProcesses(b *testing.B) {
+	l := Linux{Root: "/"}
+	for b.Loop() {
+		if _, err := l.Processes(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestParseUint(t *testing.T) {
+	for _, c := range []struct {
+		in   string
+		want uint64
+		ok   bool
+	}{
+		{"0", 0, true},
+		{"1234", 1234, true},
+		{"18446744073709551615", 1<<64 - 1, true},
+		{"18446744073709551616", 0, false},
+		{"", 0, false},
+		{"-1", 0, false},
+		{"12a", 0, false},
+		{" 1", 0, false},
+	} {
+		got, err := parseUint([]byte(c.in))
+		if (err == nil) != c.ok || got != c.want {
+			t.Errorf("parseUint(%q) = %d, %v", c.in, got, err)
+		}
 	}
 }

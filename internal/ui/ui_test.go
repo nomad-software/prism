@@ -115,6 +115,9 @@ func newTestWindow(t testing.TB, configure func(*settings.Settings)) *testWindow
 	qutetest.Run(t, func() {
 		tw.Window = NewWindow(path, tw.source)
 		tw.now = func() time.Time { return tw.clock }
+		// What the window reads aside is read at once, so that a test
+		// sees it as soon as it asks for it.
+		tw.aside = func(read, done func()) { read(); done() }
 		tw.Resize(900, 820)
 		tw.Show()
 	})
@@ -514,6 +517,29 @@ func TestAdapterColoursOrdered(t *testing.T) {
 		if got := settings.Load(tw.path).Colours.Network; !maps.Equal(got, want.Network) {
 			t.Fatalf("colours = %v, want %v", got, want.Network)
 		}
+	}
+}
+
+// TestAdaptersPruned checks that the adapters remembered that have gone are
+// forgotten as new ones are seen, once there are too many, containers' first.
+func TestAdaptersPruned(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		s.Colours = s.Colours.Clone()
+		for i := range settings.MaxAdapters - 1 {
+			s.Colours.Adapter(fmt.Sprintf("eth%02d", i))
+		}
+		s.Colours.Adapter("veth0")
+	})
+	tw.source.set(func(f *fakeSource) {
+		f.network = map[string]stats.NetCounters{"eth00": {}, "wlan0": {}}
+	})
+	qutetest.Run(t, tw.sampleNetwork)
+	saved := settings.Load(tw.path).Colours.Network
+	if _, ok := saved["veth0"]; ok {
+		t.Error("the container's adapter that has gone is still remembered")
+	}
+	if _, ok := saved["wlan0"]; !ok || len(saved) != settings.MaxAdapters {
+		t.Errorf("%d adapters saved, wlan0 among them: %v", len(saved), ok)
 	}
 }
 

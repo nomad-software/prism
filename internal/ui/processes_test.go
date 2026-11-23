@@ -7,6 +7,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/nomad-software/qute"
 	"github.com/nomad-software/qute/qtcore"
@@ -179,6 +180,133 @@ func TestSampleProcesses(t *testing.T) {
 			if a := tw.processes.tree.HeaderItem().TextAlignment(col); a&int(want) == 0 {
 				t.Errorf("heading %d is aligned %#x", col, a)
 			}
+		}
+	})
+}
+
+// TestProcessesReadAside reads the processes as the program does, away from
+// the GUI thread: they are listed once the reading comes back, and no other
+// reading is begun while one has not.
+func TestProcessesReadAside(t *testing.T) {
+	tw := newTestWindow(t, showAll)
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{{PID: 10, Name: "a", Start: 1}}
+	})
+	qutetest.Run(t, func() {
+		reads := 0
+		var pending []func()
+		tw.aside = func(read, done func()) {
+			reads++
+			pending = append(pending, func() { readAside(read, done) })
+		}
+		tw.sampleProcesses()
+		tw.sampleProcesses()
+		if reads != 1 {
+			t.Fatalf("%d readings begun, want 1 while it is read", reads)
+		}
+		if n := tw.processes.tree.TopLevelItemCount(); n != 0 {
+			t.Errorf("%d processes listed before the reading came back", n)
+		}
+		pending[0]()
+		if !qutetest.WaitFor(func() bool { return tw.processes.tree.TopLevelItemCount() == 1 }, 5*time.Second) {
+			t.Fatal("the processes read aside were not listed")
+		}
+		tw.sampleProcesses()
+		if reads != 2 {
+			t.Errorf("%d readings begun, want another once it came back", reads)
+		}
+	})
+}
+
+// TestProcessItemsKept refreshes the processes, as a tree and as a list, as
+// processes start, end and move, and checks that the items kept from one
+// refresh to the next show what a tree made afresh would, and that some are
+// kept.
+func TestProcessItemsKept(t *testing.T) {
+	steps := [][]stats.Process{
+		{{PID: 1, Name: "init"}, {PID: 2, PPID: 1, Name: "b"}, {PID: 3, PPID: 1, Name: "c"}, {PID: 4, PPID: 2, Name: "d"}},
+		{{PID: 1, Name: "init"}, {PID: 2, PPID: 1, Name: "b"}, {PID: 3, PPID: 1, Name: "c"}, {PID: 5, PPID: 3, Name: "e"}},
+		{{PID: 1, Name: "init"}, {PID: 3, PPID: 1, Name: "c"}, {PID: 5, PPID: 3, Name: "e"}, {PID: 6, PPID: 5, Name: "f"}, {PID: 7, Name: "g"}},
+		{{PID: 1, Name: "init"}, {PID: 3, PPID: 1, Name: "c"}, {PID: 5, PPID: 3, Name: "e"}, {PID: 6, PPID: 5, Name: "f"}, {PID: 7, Name: "g"}, {PID: 8, PPID: 7, Name: "h"}},
+		{},
+		{{PID: 9, Name: "i"}, {PID: 10, PPID: 9, Name: "j"}},
+		{{PID: 9, Name: "i"}, {PID: 10, PPID: 9, Name: "j"}, {PID: 11, PPID: 10, Name: "k"}, {PID: 12, Name: "l"}},
+	}
+	for _, view := range []string{settings.ViewTree, settings.ViewList} {
+		configure := func(s *settings.Settings) {
+			showAll(s)
+			s.ProcessView = view
+			s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
+		}
+		kept, fresh := newTestWindow(t, configure), newTestWindow(t, configure)
+		qutetest.Run(t, func() {
+			reused := false
+			for n, procs := range steps {
+				var before []unsafe.Pointer
+				for _, item := range kept.processes.items {
+					before = append(before, item.Ptr())
+				}
+				for _, tw := range []*testWindow{kept, fresh} {
+					tw.source.set(func(f *fakeSource) { f.procs = procs })
+				}
+				kept.sampleProcesses()
+				// The fresh window's tree is made again from nothing.
+				fresh.processes.tree.Clear()
+				fresh.processes.items, fresh.processes.depths, fresh.processes.cells = nil, nil, nil
+				fresh.sampleProcesses()
+				for col := range processColumns {
+					if got, want := column(kept, col), column(fresh, col); !slices.Equal(got, want) {
+						t.Errorf("%s, step %d: column %d = %q, want %q", view, n, col, got, want)
+					}
+				}
+				if got, want := depths(kept), depths(fresh); !slices.Equal(got, want) {
+					t.Errorf("%s, step %d: depths = %v, want %v", view, n, got, want)
+				}
+				all, _ := items(kept)
+				if len(all) != len(kept.processes.items) {
+					t.Fatalf("%s, step %d: %d items kept of %d in the tree", view, n, len(kept.processes.items), len(all))
+				}
+				for i, item := range all {
+					if item.Ptr() != kept.processes.items[i].Ptr() {
+						t.Fatalf("%s, step %d: item %d is not the one kept", view, n, i)
+					}
+					if i < len(before) && item.Ptr() == before[i] {
+						reused = true
+					}
+				}
+			}
+			if !reused {
+				t.Errorf("%s: no item was kept from one refresh to the next", view)
+			}
+		})
+	}
+}
+
+// TestProcessChosenEndsKept checks that, as the process chosen ends, its
+// item, kept for another process, is not left chosen.
+func TestProcessChosenEndsKept(t *testing.T) {
+	tw := newTestWindow(t, func(s *settings.Settings) {
+		showAll(s)
+		s.ProcessSort, s.ProcessOrder = settings.SortPID, settings.OrderAscending
+	})
+	tw.source.set(func(f *fakeSource) {
+		f.procs = []stats.Process{{PID: 1, Name: "a", Start: 1}, {PID: 2, Name: "b", Start: 1}}
+	})
+	qutetest.Run(t, func() {
+		tw.sampleProcesses()
+		chooseRow(tw, 0)
+		if tw.processes.chosen == nil || tw.processes.chosen.PID != 1 {
+			t.Fatalf("chosen = %+v, want PID 1", tw.processes.chosen)
+		}
+		tw.source.set(func(f *fakeSource) {
+			f.procs = []stats.Process{{PID: 2, Name: "b", Start: 1}, {PID: 3, Name: "c", Start: 1}}
+		})
+		tw.sampleProcesses()
+		if tw.processes.chosen != nil || chosenRow(tw) != -1 || tw.processes.send.IsEnabled() {
+			t.Errorf("chosen = %+v, row %d, after the process chosen ended", tw.processes.chosen, chosenRow(tw))
+		}
+		if cur := tw.processes.tree.CurrentItem(); cur != nil && cur.Ptr() != nil {
+			t.Errorf("an item is current after the process chosen ended: %q", cur.Text(colProcessName))
 		}
 	})
 }

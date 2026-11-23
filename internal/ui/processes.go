@@ -69,6 +69,12 @@ type processes struct {
 	// rows are the indexes in shown of the processes of the items of the
 	// tree, by the items' addresses.
 	rows map[unsafe.Pointer]int
+	// items are the items of the tree from the top, as shown is, each at
+	// the depth in depths and with the cells in cells, which are kept so
+	// that they can be given the processes of the next refresh.
+	items  []*qtwidgets.QTreeWidgetItem
+	depths []int
+	cells  [][processColumns]string
 	// folded are the processes whose branches are folded; the others are
 	// open, as each is at first.
 	folded map[stats.ProcessKey]bool
@@ -86,6 +92,8 @@ type processes struct {
 	// chosen is the process chosen in the tree, which is kept chosen as
 	// the tree is sorted and read again, while it runs.
 	chosen *stats.Process
+	// reading says that the processes are being read.
+	reading bool
 	// filling says that the tree is being filled, while which what Qt says
 	// is chosen, folded or open is not what the user chose.
 	filling bool
@@ -302,21 +310,38 @@ func (p *processes) nameProcessors(n int) {
 
 // sampleProcesses reads the processes, and lists them with how busy each was
 // since they were last read, which is known from a process's second reading.
+// They are read away from the GUI thread, as reading some thousands of files
+// takes a while, and a file of a process that is stuck can keep its reader
+// waiting; while a reading has not come back, no other is begun.
 func (w *Window) sampleProcesses() {
-	list, err := w.source.Processes()
-	w.processes.report(err)
-	if err != nil {
+	p := &w.processes
+	if p.reading {
 		return
 	}
-	w.processes.list = w.processes.usage.Update(w.now(), list, w.cpu.processors)
-	w.showProcesses()
+	p.reading = true
+	now, source := w.now(), w.source
+	var list []stats.Process
+	var err error
+	w.aside(func() {
+		list, err = source.Processes()
+	}, func() {
+		p.reading = false
+		p.report(err)
+		if err != nil {
+			return
+		}
+		p.list = p.usage.Update(now, list, w.cpu.processors)
+		w.showProcesses()
+	})
 }
 
 // showProcesses lists the processes the settings choose in the tree, as a
-// list or a tree, sorted as its header says. The tree is made again each
-// time, with nothing drawn until it is done, and with the branches folded
-// that were, the process chosen still chosen if it is still listed, and
-// scrolled as it was.
+// list or a tree, sorted as its header says, with nothing drawn until it is
+// done, and with the branches folded that were, the process chosen still
+// chosen if it is still listed, and scrolled as it was. The items are kept
+// from one refresh to the next where the tree's shape is the same, from the
+// top, and given the processes now there, which costs less than making them
+// all again.
 func (w *Window) showProcesses() {
 	p := &w.processes
 	p.filling = true
@@ -336,35 +361,48 @@ func (w *Window) showProcesses() {
 	scroll := p.tree.VerticalScrollBar().Value()
 	p.tree.SetUpdatesEnabled(false)
 	defer p.tree.SetUpdatesEnabled(true)
-	p.tree.Clear()
 	p.tree.SetRootIsDecorated(tree)
 	p.tree.SetItemsExpandable(tree)
+	kept := p.keepItems(depths)
 	p.rows = make(map[unsafe.Pointer]int, len(p.shown))
-	items := make([]*qtwidgets.QTreeWidgetItem, len(p.shown))
+	cells := make([][processColumns]string, len(p.shown))
 	// parents are the items the last item is under, from the top.
 	var parents []*qtwidgets.QTreeWidgetItem
 	var chosen *qtwidgets.QTreeWidgetItem
 	u := w.units()
 	for i, proc := range p.shown {
-		cells := processCells(proc, u)
-		item := qtwidgets.NewQTreeWidgetItemWithStrings(cells[:])
-		for col := range processColumns {
-			item.SetTextAlignment(col, processAlignment(col))
-		}
+		cells[i] = processCells(proc, u)
 		depth := min(depths[i], len(parents))
 		parents = parents[:depth]
-		if depth == 0 {
-			p.tree.AddTopLevelItem(item)
+		var item *qtwidgets.QTreeWidgetItem
+		if i < kept {
+			// Only what has changed is written, as each cell written is
+			// a change the tree has to take in.
+			item = p.items[i]
+			for col := range processColumns {
+				if cells[i][col] != p.cells[i][col] {
+					item.SetText(col, cells[i][col])
+				}
+			}
 		} else {
-			parents[depth-1].AddChild(item)
+			item = qtwidgets.NewQTreeWidgetItemWithStrings(cells[i][:])
+			for col := range processColumns {
+				item.SetTextAlignment(col, processAlignment(col))
+			}
+			if depth == 0 {
+				p.tree.AddTopLevelItem(item)
+			} else {
+				parents[depth-1].AddChild(item)
+			}
+			p.items = append(p.items, item)
 		}
 		parents = append(parents, item)
-		items[i] = item
 		p.rows[item.Ptr()] = i
 		if p.chosen != nil && proc.Key() == p.chosen.Key() {
 			chosen = item
 		}
 	}
+	p.depths, p.cells = depths, cells
 	if tree {
 		p.tree.ExpandAll()
 		running := make(map[stats.ProcessKey]bool, len(p.list))
@@ -375,20 +413,54 @@ func (w *Window) showProcesses() {
 		maps.DeleteFunc(p.folded, func(key stats.ProcessKey, _ bool) bool { return !running[key] })
 		for i, proc := range p.shown {
 			if p.folded[proc.Key()] {
-				items[i].SetExpanded(false)
+				p.items[i].SetExpanded(false)
 			}
 		}
 	}
 	if chosen != nil {
 		p.tree.SetCurrentItem(chosen)
 	} else {
+		// The item that was chosen can hold another process now.
 		p.chosen = nil
+		p.tree.ClearSelection()
+		p.tree.SetCurrentItem(nil)
 	}
 	p.tree.VerticalScrollBar().SetValue(scroll)
 	p.enableSend()
 	// The rows can have brought a scroll bar, which the header is narrowed
 	// by, or a larger PID.
 	p.fitColumns()
+}
+
+// keepItems keeps the items of the tree, from the top, that are where the
+// processes at the depths go, and takes out and deletes the rest, returning
+// how many it kept. Those it keeps are the ones before the first whose depth
+// is not as it was, as the items before an item and their depths say where
+// it is. A list, whose items are all at the top, keeps as many as it has
+// room for. If none can be kept, the tree is cleared.
+func (p *processes) keepItems(depths []int) int {
+	kept := 0
+	for kept < len(depths) && kept < len(p.depths) && depths[kept] == p.depths[kept] {
+		kept++
+	}
+	if kept == 0 {
+		p.tree.Clear()
+		p.items, p.depths, p.cells = nil, nil, nil
+		return 0
+	}
+	// The last item, from the top, is the last child of its parent, with
+	// none of its own, so the items are taken out from the bottom up.
+	for i := len(p.items) - 1; i >= kept; i-- {
+		var taken *qtwidgets.QTreeWidgetItem
+		if parent := p.items[i].Parent(); parent != nil {
+			taken = parent.TakeChild(parent.ChildCount() - 1)
+		} else {
+			taken = p.tree.TakeTopLevelItem(p.tree.TopLevelItemCount() - 1)
+		}
+		taken.Delete()
+	}
+	p.items = p.items[:kept]
+	return kept
 }
 
 // fold keeps whether the branch of the process of the item is folded, as it

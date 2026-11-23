@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -81,12 +82,15 @@ func (l Linux) Processes() ([]Process, error) {
 	}
 	page := uint64(os.Getpagesize())
 	var processes []Process
+	// Every file is read into the one buffer, as there are some thousands
+	// of them, each a few hundred bytes.
+	r := fileReader{buf: make([]byte, 0, 4096)}
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil || pid <= 0 {
 			continue
 		}
-		if p, err := readProcess(filepath.Join(dir, e.Name())); err == nil {
+		if p, err := r.readProcess(filepath.Join(dir, e.Name())); err == nil {
 			p.PID, p.Memory = pid, p.Memory*page
 			processes = append(processes, p)
 		}
@@ -94,10 +98,40 @@ func (l Linux) Processes() ([]Process, error) {
 	return processes, nil
 }
 
+// fileReader reads files into a buffer it keeps, so that what one read
+// returns is good only until the next.
+type fileReader struct {
+	buf []byte
+}
+
+// read returns what the file at the path holds. A file of /proc says it is
+// empty, so it is read until it ends, not to the size it is said to be.
+func (r *fileReader) read(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	r.buf = r.buf[:0]
+	for {
+		if len(r.buf) == cap(r.buf) {
+			r.buf = append(r.buf, 0)[:len(r.buf)]
+		}
+		n, err := f.Read(r.buf[len(r.buf):cap(r.buf)])
+		r.buf = r.buf[:len(r.buf)+n]
+		if err == io.EOF {
+			return r.buf, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+}
+
 // readProcess reads the process whose folder in /proc is at dir, all but its
 // PID, with its memory in pages.
-func readProcess(dir string) (Process, error) {
-	data, err := os.ReadFile(filepath.Join(dir, "stat"))
+func (r *fileReader) readProcess(dir string) (Process, error) {
+	data, err := r.read(filepath.Join(dir, "stat"))
 	if err != nil {
 		return Process{}, err
 	}
@@ -105,20 +139,24 @@ func readProcess(dir string) (Process, error) {
 	if err != nil {
 		return Process{}, err
 	}
-	if data, err = os.ReadFile(filepath.Join(dir, "statm")); err != nil {
+	if data, err = r.read(filepath.Join(dir, "statm")); err != nil {
 		return Process{}, err
 	}
 	if p.Memory, err = parseStatm(data); err != nil {
 		return Process{}, err
 	}
-	if data, err = os.ReadFile(filepath.Join(dir, "status")); err != nil {
+	// The real user ID is read from status, not from the owner of the
+	// folder: that is the effective user ID, and root for a process that
+	// cannot be dumped, as ssh-agent and setuid programs, which would be
+	// counted as the system's.
+	if data, err = r.read(filepath.Join(dir, "status")); err != nil {
 		return Process{}, err
 	}
 	if p.UID, err = parseStatusUID(data); err != nil {
 		return Process{}, err
 	}
 	if len(p.Name) == commLength {
-		if data, err := os.ReadFile(filepath.Join(dir, "cmdline")); err == nil {
+		if data, err := r.read(filepath.Join(dir, "cmdline")); err == nil {
 			p.Name = fullName(p.Name, data)
 		}
 	}
@@ -149,31 +187,60 @@ const pfKthread = 0x00200000
 // last closing bracket. Of them, ppid is the 2nd, flags the 7th, utime and
 // stime the 12th and 13th, and starttime the 20th, in ticks of userHZ.
 func parseProcessStat(data []byte) (Process, error) {
-	s := string(bytes.TrimSpace(data))
-	left, right := strings.IndexByte(s, '('), strings.LastIndexByte(s, ')')
+	data = bytes.TrimSpace(data)
+	left, right := bytes.IndexByte(data, '('), bytes.LastIndexByte(data, ')')
 	if left < 0 || right < left {
 		return Process{}, errors.New("stat: no name")
 	}
-	fields := strings.Fields(s[right+1:])
 	const ppid, flags, utime, stime, starttime = 1, 6, 11, 12, 19
-	if len(fields) <= starttime {
-		return Process{}, errors.New("stat: too few fields")
+	// The fields are counted off one by one, without a slice of them.
+	var fields [starttime + 1][]byte
+	rest := data[right+1:]
+	for i := range fields {
+		rest = bytes.TrimLeft(rest, " ")
+		if len(rest) == 0 {
+			return Process{}, errors.New("stat: too few fields")
+		}
+		end := bytes.IndexByte(rest, ' ')
+		if end < 0 {
+			end = len(rest)
+		}
+		fields[i], rest = rest[:end], rest[end:]
 	}
 	var n [5]uint64
 	for i, f := range []int{utime, stime, starttime, flags, ppid} {
-		v, err := strconv.ParseUint(fields[f], 10, 64)
+		v, err := parseUint(fields[f])
 		if err != nil {
 			return Process{}, fmt.Errorf("stat: %w", err)
 		}
 		n[i] = v
 	}
 	return Process{
-		Name:   s[left+1 : right],
+		Name:   string(data[left+1 : right]),
 		CPU:    time.Duration(n[0]+n[1]) * (time.Second / userHZ),
 		Start:  n[2],
 		Kernel: n[3]&pfKthread != 0,
 		PPID:   int(n[4]),
 	}, nil
+}
+
+// parseUint reads a whole number written in decimal digits.
+func parseUint(b []byte) (uint64, error) {
+	if len(b) == 0 {
+		return 0, errors.New("no number")
+	}
+	var n uint64
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("%q is not a number", b)
+		}
+		d := uint64(c - '0')
+		if n > (math.MaxUint64-d)/10 {
+			return 0, fmt.Errorf("%s is too large", b)
+		}
+		n = n*10 + d
+	}
+	return n, nil
 }
 
 // commLength is the longest name the kernel keeps of a process, in
@@ -209,16 +276,20 @@ func fullName(name string, cmdline []byte) string {
 // parseStatusUID reads the real user ID of a process from its
 // /proc/<pid>/status, the first of the IDs on its "Uid:" line.
 func parseStatusUID(data []byte) (int, error) {
-	for line := range strings.Lines(string(data)) {
-		rest, ok := strings.CutPrefix(line, "Uid:")
+	for line := range bytes.Lines(data) {
+		rest, ok := bytes.CutPrefix(line, []byte("Uid:"))
 		if !ok {
 			continue
 		}
-		fields := strings.Fields(rest)
+		fields := bytes.Fields(rest)
 		if len(fields) == 0 {
 			break
 		}
-		return strconv.Atoi(fields[0])
+		uid, err := parseUint(fields[0])
+		if err != nil || uid > math.MaxUint32 {
+			return 0, fmt.Errorf("status: Uid %q", fields[0])
+		}
+		return int(uid), nil
 	}
 	return 0, errors.New("status: no Uid")
 }
@@ -226,11 +297,16 @@ func parseStatusUID(data []byte) (int, error) {
 // parseStatm reads how many pages of a process are resident from its
 // /proc/<pid>/statm, which is the second field.
 func parseStatm(data []byte) (uint64, error) {
-	fields := strings.Fields(string(data))
-	if len(fields) < 2 {
+	_, rest, ok := bytes.Cut(bytes.TrimLeft(data, " "), []byte(" "))
+	if !ok {
 		return 0, errors.New("statm: too few fields")
 	}
-	return strconv.ParseUint(fields[1], 10, 64)
+	resident, _, _ := bytes.Cut(bytes.TrimLeft(rest, " "), []byte(" "))
+	n, err := parseUint(bytes.TrimSpace(resident))
+	if err != nil {
+		return 0, fmt.Errorf("statm: %w", err)
+	}
+	return n, nil
 }
 
 // readCounter reads a file that holds a single number.

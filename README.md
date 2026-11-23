@@ -107,14 +107,17 @@ only what is new of them, unless the scale, size or colours change.
 - **Signals**: choose a process, then a signal (SIGKILL unless another is
   chosen), and **Send Signal** sends it; the status bar says whether it was
   sent. A process that has ended in the meantime is not sent it, even if its
-  PID has been given to another.
+  PID has been given to another, and the first process, init, is never sent
+  one.
 
 ### Where the statistics come from
 
 `/proc/stat`, `/proc/meminfo`, `/sys/class/net/*/statistics/{rx,tx}_bytes`,
 and for each process `/proc/<pid>/stat`, `/proc/<pid>/statm` and
 `/proc/<pid>/status`, with `/proc/<pid>/cmdline` for the full name of one
-whose name the kernel cuts short at 15 characters, and nothing else.
+whose name the kernel cuts short at 15 characters, and nothing else. The
+processes are read away from the window's own thread, so a process stuck in
+the kernel cannot stop the window while it is read.
 
 ## Settings
 
@@ -136,7 +139,11 @@ is built with).
   shown in the network graphs and legend. An adapter that is not ticked is
   still read, so its lines are whole when it is shown again, and it keeps its
   choice when it goes away, for when it comes back. Each can be given an
-  alias, which the legend shows in place of its name.
+  alias, which the legend shows in place of its name. Up to 30 adapters are
+  remembered; beyond that, those gone are forgotten as new ones are seen,
+  first those of containers and virtual machines (`veth…`, `cali…`, `lxc…`,
+  `br-…`, `vnet…`, `tap…`), whose names never come back, then those with
+  nothing but a colour, then those hidden, and last those with an alias.
 - **User interface**: the theme, light, dark, or following the system; and a
   table of the colours of the grid, memory, swap, all processors together,
   each processor, and each network adapter that has been seen, under a

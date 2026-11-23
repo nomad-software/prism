@@ -1,6 +1,9 @@
 package stats
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestSystemProcess(t *testing.T) {
 	for _, c := range []struct {
@@ -44,5 +47,28 @@ func TestSignals(t *testing.T) {
 	s := Signals()
 	if len(s) == 0 || s[0].Name != "SIGKILL" || s[0].Number != 9 {
 		t.Errorf("Signals = %+v, want SIGKILL first", s)
+	}
+}
+
+func TestSignalRefused(t *testing.T) {
+	// Neither a group of processes nor init is signalled, nor a process
+	// whose PID another has been given; the start time is not even read
+	// for the first two.
+	started := func(start uint64) func(int) (uint64, bool) {
+		return func(int) (uint64, bool) { return start, true }
+	}
+	for _, c := range []struct {
+		p     Process
+		start uint64
+		want  error
+	}{
+		{Process{PID: 0}, 0, ErrEnded},
+		{Process{PID: -1}, 0, ErrEnded},
+		{Process{PID: 1, Start: 5}, 5, ErrInit},
+		{Process{PID: 1 << 30, Start: 5}, 6, ErrEnded},
+	} {
+		if err := signal(c.p, started(c.start), 0); !errors.Is(err, c.want) {
+			t.Errorf("signal(%+v) = %v, want %v", c.p, err, c.want)
+		}
 	}
 }

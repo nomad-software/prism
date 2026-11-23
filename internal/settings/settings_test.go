@@ -587,3 +587,80 @@ func TestMemoryMaxOutOfRange(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneAdapters(t *testing.T) {
+	s := Defaults()
+	s.Colours = s.Colours.Clone()
+	// Adapters that are present, and some that have gone: containers', and
+	// others with nothing set, hidden, or given an alias.
+	present := map[string]bool{}
+	for i := range MaxAdapters - 4 {
+		name := fmt.Sprintf("eth%02d", i)
+		present[name] = true
+		s.Colours.Adapter(name)
+	}
+	for _, name := range []string{"veth1", "vethz", "cali9", "wg0", "docker0", "tun0", "br-77"} {
+		s.Colours.Adapter(name)
+	}
+	s.HiddenAdapters = []string{"docker0", "veth1", "wg0"}
+	s.AdapterAliases = map[string]string{"docker0": "Docker", "tun0": "VPN"}
+	aliases, hidden, colours := s.AdapterAliases, s.HiddenAdapters, s.Colours.Network
+
+	// 33 are remembered, so the 3 least worth keeping of those gone go:
+	// the containers' adapters, in the order of their names.
+	isPresent := func(name string) bool { return present[name] }
+	if !s.PruneAdapters(isPresent) {
+		t.Fatal("PruneAdapters forgot none")
+	}
+	for _, name := range []string{"br-77", "cali9", "veth1"} {
+		if _, ok := s.Colours.Network[name]; ok || !s.Shown(name) {
+			t.Errorf("%s is still remembered", name)
+		}
+	}
+	if _, ok := s.Colours.Network["vethz"]; !ok {
+		t.Error("more adapters were forgotten than were too many")
+	}
+	// What was shared with other copies of the settings is left as it was.
+	if len(colours) != MaxAdapters+3 || len(hidden) != 3 || hidden[1] != "veth1" || len(aliases) != 2 {
+		t.Error("the maps or list shared with a copy were changed")
+	}
+	if s.PruneAdapters(isPresent) {
+		t.Error("PruneAdapters forgot adapters though no more were remembered than it keeps")
+	}
+
+	// Then those with nothing set, then those hidden, then those given an
+	// alias; never one present, however many there are. With two more
+	// present, two of those gone go: vethz, and wg0, hidden.
+	for i := range 2 {
+		name := fmt.Sprintf("eth%02d", MaxAdapters+i)
+		present[name] = true
+		s.Colours.Adapter(name)
+	}
+	s.PruneAdapters(isPresent)
+	var left []string
+	for _, name := range []string{"vethz", "wg0", "docker0", "tun0"} {
+		if _, ok := s.Colours.Network[name]; ok {
+			left = append(left, name)
+		}
+	}
+	if !reflect.DeepEqual(left, []string{"docker0", "tun0"}) {
+		t.Errorf("remembered of those gone = %v, want docker0 and tun0", left)
+	}
+	if !reflect.DeepEqual(s.HiddenAdapters, []string{"docker0"}) || s.AdapterLabel("tun0") != "VPN" {
+		t.Errorf("hidden = %v, tun0 = %q", s.HiddenAdapters, s.AdapterLabel("tun0"))
+	}
+	for i := range 4 {
+		name := fmt.Sprintf("eth%02d", MaxAdapters+2+i)
+		present[name] = true
+		s.Colours.Adapter(name)
+	}
+	s.PruneAdapters(isPresent)
+	for name := range present {
+		if _, ok := s.Colours.Network[name]; !ok {
+			t.Errorf("%s, present, was forgotten", name)
+		}
+	}
+	if len(s.Colours.Network) != len(present) {
+		t.Errorf("%d remembered, want only the %d present", len(s.Colours.Network), len(present))
+	}
+}

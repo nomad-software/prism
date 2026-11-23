@@ -11,6 +11,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/nomad-software/qute"
 	"github.com/nomad-software/qute/qtcore"
 	"github.com/nomad-software/qute/qtgui"
 	"github.com/nomad-software/qute/qtwidgets"
@@ -32,6 +33,9 @@ type Window struct {
 	source stats.Source
 	// now is the time, which tests set.
 	now func() time.Time
+	// aside calls read away from the GUI thread, and then done on it, so
+	// that a slow read does not stop the window. Tests call both at once.
+	aside func(read, done func())
 	// file and help are the File and Help menus.
 	file, help *qtwidgets.QMenu
 	// tabs has a tab of the graphs, and one of the processes, and tabKeys
@@ -101,6 +105,7 @@ func NewWindow(path string, source stats.Source) *Window {
 		config: settings.Load(path),
 		source: source,
 		now:    time.Now,
+		aside:  readAside,
 	}
 	qtwidgets.NewQMainWindowWith(w, nil)
 	if w.config.Theme != "" {
@@ -191,6 +196,15 @@ func (w *Window) Activate(token string) {
 	w.Show()
 	w.Raise()
 	w.ActivateWindow()
+}
+
+// readAside calls read in a goroutine of its own, and then done on the GUI
+// thread.
+func readAside(read, done func()) {
+	go func() {
+		read()
+		qute.Post(done)
+	}()
 }
 
 // newTimer returns a timer, not yet started, that calls read at the interval,
@@ -557,6 +571,12 @@ func (w *Window) sampleNetwork() {
 		}
 	}
 	if added {
+		// Adapters that come and go, as containers' do, are not
+		// remembered without end.
+		w.config.PruneAdapters(func(name string) bool {
+			_, ok := counters[name]
+			return ok
+		})
 		w.saveConfig()
 	}
 	w.showNetwork()

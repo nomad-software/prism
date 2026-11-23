@@ -5,7 +5,9 @@
 package settings
 
 import (
+	"cmp"
 	"encoding/json"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -157,6 +159,83 @@ func (s Settings) AdapterLabel(adapter string) string {
 		return alias
 	}
 	return adapter
+}
+
+// MaxAdapters is how many network adapters the settings remember, of those
+// not present now, beyond which the least worth keeping are forgotten.
+const MaxAdapters = 30
+
+// ephemeralPrefixes start the names of network adapters made for a while
+// under names that are not given again, as containers' and virtual
+// machines' are, which are the first forgotten.
+var ephemeralPrefixes = []string{"veth", "cali", "lxc", "br-", "vnet", "tap"}
+
+// ephemeral says whether the name of a network adapter is one that is not
+// given again.
+func ephemeral(name string) bool {
+	return slices.ContainsFunc(ephemeralPrefixes, func(prefix string) bool {
+		return strings.HasPrefix(name, prefix) && len(name) > len(prefix)
+	})
+}
+
+// PruneAdapters forgets the colours, aliases and hiding of network adapters
+// that are not present, while more than MaxAdapters are remembered, and says
+// whether any were. Adapters present are never forgotten, however many there
+// are. Of the rest, the first forgotten are those whose names are not given
+// again, as containers' adapters are; then those the user has given nothing
+// but their colour; then those hidden; and last those given an alias; each
+// in the order of their names.
+func (s *Settings) PruneAdapters(present func(name string) bool) bool {
+	remembered := map[string]bool{}
+	for name := range s.Colours.Network {
+		remembered[name] = true
+	}
+	for name := range s.AdapterAliases {
+		remembered[name] = true
+	}
+	for _, name := range s.HiddenAdapters {
+		remembered[name] = true
+	}
+	excess := len(remembered) - MaxAdapters
+	if excess <= 0 {
+		return false
+	}
+	var gone []string
+	for name := range remembered {
+		if !present(name) {
+			gone = append(gone, name)
+		}
+	}
+	rank := func(name string) int {
+		switch {
+		case ephemeral(name):
+			return 0
+		case s.AdapterAliases[name] != "":
+			return 3
+		case !s.Shown(name):
+			return 2
+		}
+		return 1
+	}
+	slices.SortFunc(gone, func(a, b string) int {
+		return cmp.Or(cmp.Compare(rank(a), rank(b)), strings.Compare(a, b))
+	})
+	gone = gone[:min(excess, len(gone))]
+	if len(gone) == 0 {
+		return false
+	}
+	// The maps and list are made anew, as copies of the settings, as the
+	// settings dialog's, can share them.
+	s.Colours.Network = maps.Clone(s.Colours.Network)
+	s.AdapterAliases = maps.Clone(s.AdapterAliases)
+	for _, name := range gone {
+		delete(s.Colours.Network, name)
+		delete(s.AdapterAliases, name)
+	}
+	s.HiddenAdapters = slices.DeleteFunc(slices.Clone(s.HiddenAdapters), func(name string) bool {
+		return slices.Contains(gone, name)
+	})
+	return true
 }
 
 // Intervals are how often each statistic is read, in seconds to a tenth of

@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="14 14 228 228">
+  <!-- The glass prism Prism has always had, in the style of Termite's and
+       Notepad's icons: a thick dark outline and flat colours, with lighter
+       ones for the light in it. It stands on a slab, a corner to the front:
+       the left face is blue and the right orange, and the edges at the back
+       show through the glass, dividing each face in two. -->
+  <!-- the thick dark outline -->
+  <path d="M129 24 L231 170 L231 182 L170 232 L25 184 L25 173 z" fill="#13233f" stroke="#13233f" stroke-width="20" stroke-linejoin="round"/>
+  <!-- the slab's edges -->
+  <path d="M25 173 L170 221 L170 232 L25 184 z" fill="#1450b4"/>
+  <path d="M170 221 L231 170 L231 182 L170 232 z" fill="#cf3a17"/>
+  <!-- the left face: above and below the edge behind it, and the light along the front edge -->
+  <path d="M129 24 L146 104 L25 173 z" fill="#5a9cf5"/>
+  <path d="M25 173 L146 104 L170 221 z" fill="#1f76e8"/>
+  <path d="M129 24 L146 104 L105 127 z" fill="#6fe9f7"/>
+  <!-- the right face, the same -->
+  <path d="M129 24 L231 170 L146 104 z" fill="#b4dc5e"/>
+  <path d="M146 104 L231 170 L170 221 z" fill="#ff8a1f"/>
+  <!-- the bright front edge, then the slab's top edge over its foot -->
+  <path d="M129 24 L170 221" fill="none" stroke="#f1fdff" stroke-width="5" stroke-linecap="round"/>
+  <path d="M25 173 L170 221 L231 170" fill="none" stroke="#13233f" stroke-width="5" stroke-linejoin="round"/>
+</svg>

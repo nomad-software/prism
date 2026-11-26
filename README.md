@@ -184,8 +184,8 @@ folder.
 Every time it starts, Prism adds itself to the desktop's
 applications, so that it can be started from the menu and kept in a dock or
 sidebar: it writes `~/.local/share/applications/prism.desktop` and its icon
-to `~/.local/share/icons/hicolor/128x128/apps/prism.png` (or under
-`$XDG_DATA_HOME`). The entry starts the copy that ran last, wherever it is,
+to `~/.local/share/icons/hicolor/256x256/apps/prism.png` (or under
+`$XDG_DATA_HOME`), removing the 128x128 one older versions wrote. The entry starts the copy that ran last, wherever it is,
 the AppImage if it was run from one. If the desktop keeps showing an older
 icon after an update, it has the old one cached: logging out and in again
 clears it (on KDE, so does deleting `~/.cache/icon-cache.kcache`).
@@ -249,6 +249,7 @@ make run        # builds and runs it
 make test       # runs the tests
 make bench      # times drawing the graphs and refreshing the processes
 make vet        # runs go vet
+make icons      # draws the icon from packaging/prism.svg (needs rsvg-convert)
 make screenshot # draws docs/screenshot.png
 make appimage   # builds ./Prism-<version>-x86_64.AppImage (see below)
 make clean      # removes them, and the AppImage's build folder
@@ -321,7 +322,8 @@ next time, and puts only the AppImage in the root of the project.
 - `internal/settings` loads and saves the settings, and gives colours.
 - `internal/instance` keeps to one copy running, and hands over to it.
 - `internal/desktop` writes the Linux desktop entry and its icon.
-- `internal/appicon` holds the icon, a glass prism, built into the program.
+- `internal/appicon` holds the icon, a glass prism, built into the program;
+  `make icons` draws it from `packaging/prism.svg`.
 - `internal/ui` is the window and its tabs, the graphs and legends it paints,
   the table of processes, the settings dialog, the about box and the themes.
 - `packaging` has the script and files that make the AppImage.

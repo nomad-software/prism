@@ -15,7 +15,7 @@ LDFLAGS := -s -w
 VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null)
 LDFLAGS += -X github.com/nomad-software/prism/internal/ui.version=$(VERSION)
 
-.PHONY: build run test bench vet screenshot appimage clean
+.PHONY: build run test bench vet icons screenshot appimage clean
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o $(BINARY) .
@@ -37,6 +37,11 @@ bench:
 
 vet:
 	go vet ./...
+
+# Draws the program's icon, internal/appicon/appicon.png, from
+# packaging/prism.svg. Run it again whenever the SVG changes.
+icons:
+	rsvg-convert -w 256 -h 256 packaging/prism.svg -o internal/appicon/appicon.png
 
 # Draws the window, with a few minutes of made up readings, into
 # docs/screenshot.png.

@@ -1,5 +1,6 @@
 // Package appicon holds the program's icon, built into the binary so that the
-// program needs nothing beside it. It has no dependency on the UI.
+// program needs nothing beside it. It is drawn from packaging/prism.svg by
+// make icons, and has no dependency on the UI.
 package appicon
 
 import _ "embed"
@@ -10,4 +11,4 @@ import _ "embed"
 var PNG []byte
 
 // size is the width and height of PNG.
-const size = 128
+const size = 256
